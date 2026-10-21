@@ -1,5 +1,6 @@
 #!/bin/bash
-# Create work/qt: the macmini's Qt 5.15.2 clang_64, usable from Linux.
+# Install the macmini's Qt 5.15.2 clang_64, made usable from Linux, under $QT_ROOT
+# (default: work/qt; the image uses /, i.e. /Users/peterix/Qt/5.15.2/clang_64).
 #
 # The prebuilt macOS Qt is used as-is for headers, frameworks and plugins. Only its
 # build-time tools are macOS binaries, so they are moved to bin.macos/ and replaced:
@@ -11,15 +12,16 @@
 set -euo pipefail
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ARCHIVE=${ARCHIVE:-$HERE/../2026-10-21}
-W=$HERE/work/qt
+W=${QT_ROOT:-$HERE/work/qt}
 P=/Users/peterix/Qt/5.15.2/clang_64
 
-rm -rf "$W"
-mkdir -p "$W"
-tar -C "$W" --zstd -xf "$ARCHIVE/macmini-Qt.tar.zst" --warning=no-unknown-keyword \
+# Only ever remove the Qt directory itself, never $W (which may be /).
+rm -rf "${W%/}$P"
+mkdir -p "${W%/}/"
+tar -C "${W%/}/" --zstd -xf "$ARCHIVE/macmini-Qt.tar.zst" --warning=no-unknown-keyword \
     --exclude='._*' --exclude='.DS_Store' "${P#/}"
 
-cd "$W$P/bin"
+cd "${W%/}$P/bin"
 mkdir -p ../bin.macos
 for t in moc rcc uic qmake; do mv "$t" ../bin.macos/; done
 for t in moc rcc uic; do ln -s "/opt/qt5-host/bin/$t" "$t"; done
@@ -42,4 +44,4 @@ case "$1 $2" in
 esac
 EOF
 chmod +x qmake
-echo "prepared $W$P"
+echo "prepared ${W%/}$P"

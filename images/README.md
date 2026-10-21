@@ -39,6 +39,13 @@ all 15 tests pass, and the install tree matches the shipped
 `mmc-develop-lin32.tar.gz` in file list, NEEDED libs and max symbol versions
 (GLIBC_2.4, GLIBCXX_3.4.21, CXXABI_1.3, GCC_3.0).
 
+`windows-win32.tar.zst` — `multimc/toolchains/windows-win32:dev`, the win32 build under
+Wine (minimal Arch + GE-Proton10-15 + the VM's toolchain). See `../windows/README.md`.
+
+`macos-cross-osx64.tar.zst` — `multimc/toolchains/macos-cross:dev`, see `../macos/README.md`.
+
+`translations.tar.zst` — `multimc/toolchains/translations:dev`, see `../translations/README.md`.
+
 ## ../baselines/
 
 Shipped builds copied from files.multimc.org/downloads, used as the reference

@@ -33,17 +33,19 @@ same bundle contents. Verified 2026-10-21 against the shipped `mmc-develop-osx64
 | `tarballs/MacOSX11.1.sdk.tar.xz` | Made by `make-sdk-package.sh` from the archive: SDK 11.1 with Xcode's libc++ headers merged into `usr/include/c++/v1` (Xcode 12 keeps them in the toolchain). Deterministic; expected SHA-256 in `tarballs/SHA256SUMS`. |
 | `tarballs/qtbase-everywhere-src-5.15.2.tar.xz` | From download.qt.io, MD5 checked against Qt's `md5sums.txt`. |
 | `tarballs/OpenJDK8U-jdk_x64_linux_hotspot_8u504b01.tar.gz` | From Adoptium, SHA-256 checked against the Adoptium API. |
-| `prepare-qt.sh` | Builds `work/qt` from the archived macmini Qt 5.15.2: original macOS tools moved to `bin.macos/`, `moc`/`rcc`/`uic` linked to the image's Linux builds, and a `qmake` stand-in that answers the `-query` calls the Launcher's CMake makes. Kept at its original path `/Users/peterix/Qt/5.15.2/clang_64`. |
+| `prepare-qt.sh` | Installs the archived macmini Qt 5.15.2 into the image at its original path `/Users/peterix/Qt/5.15.2/clang_64`: original macOS tools moved to `bin.macos/`, `moc`/`rcc`/`uic` linked to the image's Linux builds, and a `qmake` stand-in that answers the `-query` calls the Launcher's CMake makes. Run during the image build (`QT_ROOT=/`); can also make a host copy in `work/qt`. |
 | `toolchain-osx64.cmake` | Includes osxcross's toolchain file, then lets `find_package` see Qt outside the SDK. Libraries and headers still come only from the SDK. |
-| `build-osx64.sh` | The build: same CMake options as TeamCity (`mac-bundle`, deployment target 10.13, Release), no network. Two cross-build specifics: `otool`/`install_name_tool` are put on `PATH` under their plain names for CMake's BundleUtilities, and the install step runs with `-DAPPLE=1` because CMake's script mode doesn't set it on a Linux host. |
+| `build-osx64.sh` | The build: same CMake options as TeamCity (`mac-bundle`, deployment target 10.13, Release), no network, as the calling user. `SOURCE_DATE_EPOCH` is set to the commit time, because Qt 5.15's `rcc` embeds file modification times in resources; with it, two checkouts of the same commit build byte-identical apps. Two cross-build specifics: `otool`/`install_name_tool` are put on `PATH` under their plain names for CMake's BundleUtilities, and the install step runs with `-DAPPLE=1` because CMake's script mode doesn't set it on a Linux host. |
 
 ### From scratch
 
     ./make-sdk-package.sh                # needs ../2026-10-21
     sha256sum -c tarballs/SHA256SUMS
-    docker build -t multimc/toolchains/macos-cross:dev .
-    ./prepare-qt.sh
-    ./build-osx64.sh <clean Launcher checkout with submodules> <out dir> <build number>
+    docker build --build-context macarchive=../2026-10-21 -t multimc/toolchains/macos-cross:dev .
+    ./build-osx64.sh <Launcher checkout on its branch, with submodules> <out dir> <build number>
+
+The image contains everything, including the Qt 5.15.2 (mounted from the macmini archive
+during the image build, not copied into a layer).
 
 Result: `<out>/install/MultiMC.app`, logs in `<out>/*.log`.
 

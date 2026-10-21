@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
 # MultiMC macOS cross toolchain: builds the osx64-5.15.2 Launcher on Linux.
 #
+# Build with the macmini archive as a named context (it provides the Qt 5.15.2 itself):
+#   docker build --build-context macarchive=../2026-10-21 -t multimc/toolchains/macos-cross:dev .
+#
 # Inputs in tarballs/ (all archived, see ../README.md):
 #   MacOSX11.1.sdk.tar.xz                  SDK from macmini's Xcode 12.4 + its libc++ headers
 #   qtbase-everywhere-src-5.15.2.tar.xz    for Linux-native moc/rcc/uic matching the macOS Qt
@@ -43,4 +46,12 @@ COPY --from=qthost /opt/qt5-host /opt/qt5-host
 COPY tarballs/OpenJDK8U-jdk_x64_linux_hotspot_8u504b01.tar.gz /tmp/
 RUN mkdir -p /opt/jdk8 && tar -C /opt/jdk8 --strip-components=1 -xzf /tmp/OpenJDK8U-*.tar.gz && rm /tmp/OpenJDK8U-*.tar.gz
 ENV PATH=/opt/osxcross/bin:/opt/jdk8/bin:$PATH JAVA_HOME=/opt/jdk8
+
+# The macmini's Qt 5.15.2 clang_64 at its original path, with the Linux moc/rcc/uic and the
+# qmake stand-in (prepare-qt.sh). The archive is mounted, not copied into a layer.
+COPY prepare-qt.sh /opt/prepare-qt.sh
+RUN apt-get update && apt-get install -y --no-install-recommends zstd && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=bind,from=macarchive,target=/archive \
+    ARCHIVE=/archive QT_ROOT=/ /opt/prepare-qt.sh \
+    && /Users/peterix/Qt/5.15.2/clang_64/bin/moc -v
 LABEL org.opencontainers.image.title="MultiMC macOS cross toolchain (osx64-5.15.2)"
