@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="bc43f2d4-b277-420f-9385-cf69e61f7e58" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2021.1/project-config.xsd">
+  <name>MultiMC</name>
+  <description>Block game launcher.</description>
+  <parameters>
+    <param name="container_deployer" value="ghcr.io/multimc/toolchains/deployer" />
+    <param name="container_site" value="ghcr.io/multimc/toolchains/site" />
+    <param name="container_translations" value="ghcr.io/multimc/toolchains/linux-x64" />
+    <param name="container_x32_linux" value="ghcr.io/multimc/toolchains/linux-x32" />
+    <param name="container_x64_linux" value="ghcr.io/multimc/toolchains/linux-x64" />
+    <param name="url_bugs" value="https://github.com/MultiMC/Launcher/issues" />
+    <param name="url_discord" value="https://discord.gg/multimc" />
+    <param name="url_patreon" value="https://www.patreon.com/multimc" />
+    <param name="url_reddit" value="https://www.reddit.com/r/MultiMC/" />
+  </parameters>
+  <project-extensions>
+    <extension id="PROJECT_EXT_4" type="JetBrains.SharedResources">
+      <parameters>
+        <param name="name" value="LocalDeploy" />
+        <param name="quota" value="1" />
+        <param name="type" value="quoted" />
+      </parameters>
+    </extension>
+  </project-extensions>
+  <cleanup />
+</project>
+

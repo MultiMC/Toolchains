@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<build-type xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="54035079-ee94-4441-b2b2-5bae1e58d3b4" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2021.1/project-config.xsd">
+  <name>Deploy</name>
+  <description />
+  <settings ref="MultiMC_Launcher_Deploy">
+    <disabled-settings>
+      <setting-ref ref="RQ_7" />
+      <setting-ref ref="RUNNER_20" />
+    </disabled-settings>
+    <parameters>
+      <param name="dep_branch" value="%dep.MultiMC_Launcher_Linux32_Build.teamcity.build.vcs.branch.MultiMC%" />
+      <param name="dep_build" value="%dep.MultiMC_Launcher_Linux32_Build.build.number%" />
+      <param name="dep_platform" value="%dep.MultiMC_Launcher_Linux32_Build.vsn_platform%" />
+      <param name="dep_version" value="%dep.MultiMC_Launcher_Linux32_Build.env.LAUNCHER_VERSION%" />
+    </parameters>
+    <build-runners>
+      <runner id="RUNNER_14" name="Unpack build archive" type="simpleRunner">
+        <parameters>
+          <param name="log.stderr.as.errors" value="true" />
+          <param name="plugin.docker.imageId" value="%container_deployer%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content"><![CDATA[ls
+tar -xzf package.tar.gz
+ls]]></param>
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_19" name="Deploy update" type="simpleRunner">
+        <parameters>
+          <param name="log.stderr.as.errors" value="true" />
+          <param name="plugin.docker.imageId" value="%container_deployer%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content"><![CDATA[set -e
+set -x
+
+TC_BRANCH="%dep_branch%"
+REAL_BRANCH=${TC_BRANCH#"refs/heads/"}
+SOURCE_DIR=`pwd`
+
+cd %deploy_bind_mount%
+sudo -u \#33 repoman -c update push %dep_platform% ${REAL_BRANCH} %dep_build% %dep_version% "${SOURCE_DIR}/%app_folder%/"]]></param>
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+    </build-runners>
+    <vcs-settings />
+    <requirements />
+    <build-triggers>
+      <build-trigger id="TRIGGER_4" type="buildDependencyTrigger">
+        <parameters>
+          <param name="afterSuccessfulBuildOnly" value="true" />
+          <param name="branchFilter" value="+:refs/heads/develop" />
+          <param name="dependsOn" value="MultiMC_Launcher_Linux32_Build" />
+        </parameters>
+      </build-trigger>
+    </build-triggers>
+    <artifact-dependencies>
+      <dependency id="ARTIFACT_DEPENDENCY_3" sourceBuildTypeId="MultiMC_Launcher_Linux32_Build" cleanDestination="true">
+        <revisionRule name="sameChainOrLastFinished" revision="latest.sameChainOrLastFinished" />
+        <artifact sourcePath="package.tar.gz" />
+      </dependency>
+    </artifact-dependencies>
+    <dependencies>
+      <depend-on sourceBuildTypeId="MultiMC_Launcher_Linux32_Build">
+        <options>
+          <option name="run-build-if-dependency-failed" value="CANCEL" />
+          <option name="run-build-if-dependency-failed-to-start" value="CANCEL" />
+          <option name="take-started-build-with-same-revisions" value="true" />
+          <option name="take-successful-builds-only" value="true" />
+        </options>
+      </depend-on>
+    </dependencies>
+    <cleanup />
+  </settings>
+</build-type>
+

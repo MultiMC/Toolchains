@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<template xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="2529c7ab-fdb4-46a6-b064-e015a6bd6f2d" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2021.1/project-config.xsd">
+  <name>Deploy</name>
+  <settings>
+    <options>
+      <option name="cleanBuild" value="true" />
+      <option name="publishArtifactCondition" value="SUCCESSFUL" />
+    </options>
+    <parameters>
+      <param name="app_folder" value="MultiMC" />
+      <param name="deploy_bind_mount" value="/deploy/files" />
+      <param name="env.AWS_ACCESS_KEY_ID" value="%s3_deploy_key%" />
+      <param name="env.AWS_SECRET_ACCESS_KEY" value="%s3_deploy_secret%" />
+    </parameters>
+    <build-runners>
+      <runner id="RUNNER_14" name="Unpack build archive" type="simpleRunner">
+        <parameters>
+          <param name="log.stderr.as.errors" value="true" />
+          <param name="plugin.docker.imageId" value="%container_deployer%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="plugin.docker.run.parameters" value="-v /etc/private/deployer:/private -v /home/http/files:/deploy/files" />
+          <param name="script.content"><![CDATA[ls
+tar -xzf package.tar.gz
+ls]]></param>
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_19" name="Deploy update" type="simpleRunner">
+        <parameters>
+          <param name="log.stderr.as.errors" value="true" />
+          <param name="plugin.docker.imageId" value="%container_deployer%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="plugin.docker.run.parameters" value="-v /etc/private/deployer:/private -v /home/http/files:/deploy/files" />
+          <param name="script.content"><![CDATA[set -e
+set -x
+
+TC_BRANCH="%dep_branch%"
+REAL_BRANCH=${TC_BRANCH#"refs/heads/"}
+SOURCE_DIR=`pwd`
+
+cd %deploy_bind_mount%
+sudo -u \#33 repoman -c update push %dep_platform% ${REAL_BRANCH} %dep_build% %dep_version% "${SOURCE_DIR}/%app_folder%/"]]></param>
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_18" name="Deploy archive unix" type="simpleRunner">
+        <parameters>
+          <param name="log.stderr.as.errors" value="true" />
+          <param name="plugin.docker.imageId" value="%container_deployer%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content"><![CDATA[set -e
+set -x
+
+TC_BRANCH="%dep_branch%"
+REAL_BRANCH=${TC_BRANCH#"refs/heads/"}
+OUT_PACKAGE="mmc-${REAL_BRANCH}-%dep_platform%.tar.gz"
+SOURCE_DIR=`pwd`
+
+mv package.tar.gz ${OUT_PACKAGE}
+
+cd %deploy_bind_mount%
+sudo -u \#33 repoman push-file downloads "${SOURCE_DIR}/${OUT_PACKAGE}"]]></param>
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_20" name="Deploy archive windows" type="simpleRunner">
+        <parameters>
+          <param name="log.stderr.as.errors" value="true" />
+          <param name="plugin.docker.imageId" value="%container_deployer%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content"><![CDATA[set -e
+set -x
+
+TC_BRANCH="%dep_branch%"
+REAL_BRANCH=${TC_BRANCH#"refs/heads/"}
+OUT_ZIP="mmc-${REAL_BRANCH}-%dep_platform%.zip"
+SOURCE_DIR=`pwd`
+
+zip -r ${OUT_ZIP} %app_folder%
+
+cd %deploy_bind_mount%
+sudo -u \#33 repoman push-file downloads "${SOURCE_DIR}/${OUT_ZIP}"]]></param>
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_17" name="Sync to S3" type="simpleRunner">
+        <parameters>
+          <param name="log.stderr.as.errors" value="true" />
+          <param name="plugin.docker.imageId" value="%container_deployer%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content"><![CDATA[set -e
+set -x
+
+s3cmd sync -v --follow-symlinks --delete-removed %deploy_bind_mount%/ s3://files.multimc.org/]]></param>
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+    </build-runners>
+    <vcs-settings />
+    <requirements />
+    <build-triggers />
+    <cleanup />
+  </settings>
+</template>
+

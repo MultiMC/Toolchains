@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<build-type xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="5f66378b-3253-4441-ab17-a60b09bb45ef" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2021.1/project-config.xsd">
+  <name>Build</name>
+  <description />
+  <settings ref="MultiMC_Launcher_BuildLauncher">
+    <parameters>
+      <param name="JOIN" value="\" />
+      <param name="buildFolder" value="build_x32" />
+      <param name="c_compiler" value="/usr/bin/gcc-5" />
+      <param name="cxx_compiler" value="/usr/bin/g++-5" />
+      <param name="layout" value="lin-nodeps" />
+      <param name="parent_install_prefix" value="%system.teamcity.build.checkoutDir%/install_x32" />
+      <param name="qt_path" value="/opt/qt56/" />
+      <param name="root_name" value="MultiMC" />
+    </parameters>
+    <build-runners>
+      <runner id="RUNNER_1" name="Configure" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_x32_linux%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content"><![CDATA[%cmake_command% %JOIN%
+ -DCMAKE_C_COMPILER=%c_compiler% %JOIN%
+ -DCMAKE_CXX_COMPILER=%cxx_compiler% %JOIN%
+ -DCMAKE_BUILD_TYPE=%build_type% %JOIN%
+ -DLauncher_NOTIFICATION_URL:STRING=%multimc.notifications_url% %JOIN%
+ -DCMAKE_INSTALL_PREFIX:PATH="%install_prefix%" %JOIN%
+ -DCMAKE_PREFIX_PATH="%qt_path%" %JOIN%
+ -DQt5_DIR="%qt_path%" %JOIN%
+ -DLauncher_UPDATER_BASE=%multimc.update.urlBase% %JOIN%
+ -DLauncher_PASTE_EE_API_KEY:STRING=%multimc.paste_ee.api_key% %JOIN%
+ -DLauncher_ANALYTICS_ID:STRING=%multimc.analytics_id% %JOIN%
+ -DLauncher_LAYOUT=%layout% %JOIN%
+ -DLauncher_VERSION_BUILD=%build.number% %JOIN%
+ -DLauncher_BUILD_PLATFORM=%vsn_platform% %JOIN%
+ -DLauncher_SUBREDDIT_URL=%url_reddit% %JOIN%
+ -DLauncher_DISCORD_URL=%url_discord% %JOIN%
+ -DLauncher_BUG_TRACKER_URL=%url_bugs% %JOIN%
+ -DLauncher_EMBED_SECRETS=On %JOIN%
+ %cmake_extra_args% %JOIN%
+ ..]]></param>
+          <param name="teamcity.build.workingDir" value="%buildFolder%" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_15" name="Extract Version" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_x32_linux%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content" value="%make_cmd% tcversion" />
+          <param name="teamcity.build.workingDir" value="%buildFolder%" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_2" name="Build" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_x32_linux%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content" value="%make_cmd% -j%teamcity.agent.hardware.cpuCount%" />
+          <param name="teamcity.build.workingDir" value="%buildFolder%" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_3" name="Test" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_x32_linux%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content" value="%make_cmd% test" />
+          <param name="teamcity.build.workingDir" value="%buildFolder%" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_5" name="Clean install dir" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_x32_linux%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content" value="%cmake_command% -E remove_directory &quot;%install_prefix%&quot;" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_4" name="Install" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_x32_linux%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content" value="%make_cmd% install" />
+          <param name="teamcity.build.workingDir" value="%buildFolder%" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_8" name="Package" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_x32_linux%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content"><![CDATA[%cmake_command% -E remove_directory "%artifact_prefix%"
+%cmake_command% -E make_directory "%artifact_prefix%"
+%cmake_command% -E tar "cfvz" "%artifact_prefix%/package.tar.gz" "%root_name%"]]></param>
+          <param name="teamcity.build.workingDir" value="%parent_install_prefix%" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+    </build-runners>
+    <vcs-settings />
+    <requirements>
+      <equals id="RQ_11" name="teamcity.agent.jvm.os.name" value="Linux" />
+    </requirements>
+    <build-triggers>
+      <build-trigger id="vcsTrigger" type="vcsTrigger">
+        <parameters>
+          <param name="branchFilter" value="+:*" />
+          <param name="enableQueueOptimization" value="true" />
+          <param name="quietPeriodMode" value="DO_NOT_USE" />
+        </parameters>
+      </build-trigger>
+    </build-triggers>
+    <cleanup />
+  </settings>
+</build-type>
+

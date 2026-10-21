@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<build-type xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="dc6108d6-c2dd-4eff-ace0-44e8a3572e63" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2021.1/project-config.xsd">
+  <name>Deploy</name>
+  <description />
+  <settings>
+    <options>
+      <option name="allowPersonalBuildTriggering" value="false" />
+      <option name="buildConfigurationType" value="DEPLOYMENT" />
+      <option name="maximumNumberOfBuilds" value="1" />
+    </options>
+    <parameters>
+      <param name="env.AWS_ACCESS_KEY_ID" value="%s3_deploy_key%" />
+      <param name="env.AWS_SECRET_ACCESS_KEY" value="%s3_deploy_secret%" />
+      <param name="vsn_platform" value="invalid" />
+    </parameters>
+    <build-runners>
+      <runner id="RUNNER_22" name="Deploy" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_deployer%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="plugin.docker.run.parameters" value="-v /etc/private/deployer:/private -v /home/http/files:/deploy/files" />
+          <param name="script.content" value="rsync -rvog --chown=33:33 build/ /deploy/files/translations/" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_23" name="Sync to s3" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_deployer%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="plugin.docker.run.parameters" value="-v /etc/private/deployer:/private -v /home/http/files:/deploy/files" />
+          <param name="script.content" value="s3cmd sync -v --delete-removed /deploy/files/ s3://files.multimc.org/" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+    </build-runners>
+    <vcs-settings />
+    <requirements />
+    <build-triggers>
+      <build-trigger id="TRIGGER_5" type="buildDependencyTrigger">
+        <parameters>
+          <param name="afterSuccessfulBuildOnly" value="true" />
+          <param name="branchFilter" value="+:&lt;default&gt;" />
+          <param name="dependsOn" value="MultiMC_Launcher_Translations_Build" />
+        </parameters>
+      </build-trigger>
+    </build-triggers>
+    <artifact-dependencies>
+      <dependency id="ARTIFACT_DEPENDENCY_4" sourceBuildTypeId="MultiMC_Launcher_Translations_Build" cleanDestination="true">
+        <revisionRule name="sameChainOrLastFinished" revision="latest.sameChainOrLastFinished" />
+        <artifact sourcePath="* =&gt; build/" />
+      </dependency>
+    </artifact-dependencies>
+    <dependencies>
+      <depend-on sourceBuildTypeId="MultiMC_Launcher_Translations_Build">
+        <options>
+          <option name="take-started-build-with-same-revisions" value="true" />
+          <option name="take-successful-builds-only" value="true" />
+        </options>
+      </depend-on>
+    </dependencies>
+    <cleanup />
+  </settings>
+</build-type>
+

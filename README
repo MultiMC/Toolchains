@@ -1,9 +1,0 @@
-# MultiMC builder setup
-
-This describes how to set up MultiMC teamcity build agents so they aren't annoying.
-
-1. Copy `env.example` to `.env`
-2. Bring up all the machines with `docker-compose up` and observe the auth tokens they get from TC
-3. Bring all the build agents down
-4. Fill in the real auth token into `.env`
-5. Bring the agents up, remove all dead ones from TC, authorize the running ones
