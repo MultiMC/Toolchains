@@ -1,0 +1,17 @@
+image: /var/lib/libvirt/images/buildbot_w32.qcow2
+file format: qcow2
+virtual size: 80 GiB (85899345920 bytes)
+disk size: 33.9 GiB
+cluster_size: 65536
+Format specific information:
+    compat: 1.1
+    compression type: zlib
+    lazy refcounts: false
+    refcount bits: 16
+    corrupt: false
+    extended l2: false
+Child node '/file':
+    filename: /var/lib/libvirt/images/buildbot_w32.qcow2
+    protocol type: file
+    file length: 33.9 GiB (36418551808 bytes)
+    disk size: 33.9 GiB
