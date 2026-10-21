@@ -1,0 +1,10 @@
+# Only what win32.Dockerfile needs.
+*
+!GE-Proton10-15
+!Tools/Qt/5.6.3/mingw49_32
+!Tools/Qt/Tools/mingw492_32
+!Tools/CMake-3.20.1
+!Tools/Tools
+!Tools/GnuWin32
+!Tools/OpenSSL-Win32
+!Tools/jdk1.8.0_112

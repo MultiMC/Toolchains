@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="623311f7-94a8-4c05-806c-d06b9b8bfa54" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2020.1/project-config.xsd">
+  <name>&lt;Root project&gt;</name>
+  <description>Contains all other projects</description>
+  <parameters>
+    <param name="github_status_access_key" value="credentialsJSON:86290514-e5f0-4bb4-ac09-ae77dd74490e" spec="password display='normal' description='Access key used to push build status info to github' readOnly='true'" />
+    <param name="s3_deploy_key" value="AKIAIXAAATLF67J6W2OQ" spec="text validationMode='any' display='hidden'" />
+    <param name="s3_deploy_secret" value="credentialsJSON:4bdb41d2-260d-4e57-8f59-3859324f263b" spec="password display='normal'" />
+  </parameters>
+  <project-extensions>
+    <extension id="PROJECT_EXT_1" type="ReportTab">
+      <parameters>
+        <param name="startPage" value="coverage.zip!index.html" />
+        <param name="title" value="Code Coverage" />
+        <param name="type" value="BuildReportTab" />
+      </parameters>
+    </extension>
+    <extension id="PROJECT_EXT_2" type="OAuthProvider">
+      <parameters>
+        <param name="clientId" value="99fb9de683cfda760784" />
+        <param name="defaultTokenScope" value="public_repo,repo,repo:status,write:repo_hook" />
+        <param name="displayName" value="GitHub.com" />
+        <param name="gitHubUrl" value="https://github.com/" />
+        <param name="providerType" value="GitHub" />
+        <param name="secure:clientSecret" value="credentialsJSON:65b18fc2-e8d4-45a0-bd28-f30def46b97e" />
+      </parameters>
+    </extension>
+    <extension id="PROJECT_EXT_3" type="IssueTracker">
+      <parameters>
+        <param name="authType" value="accesstoken" />
+        <param name="name" value="MultiMC/MultiMC5" />
+        <param name="pattern" value="GH-(\d+)" />
+        <param name="repository" value="https://github.com/MultiMC/MultiMC5" />
+        <param name="secure:accessToken" value="credentialsJSON:9fb005e7-8e02-43db-985b-51eb96e4a34e" />
+        <param name="secure:password" value="" />
+        <param name="type" value="GithubIssues" />
+        <param name="username" value="" />
+      </parameters>
+    </extension>
+    <extension id="PROJECT_EXT_5" type="versionedSettings">
+      <parameters>
+        <param name="buildSettings" value="ALWAYS_USE_CURRENT" />
+        <param name="credentialsStorageType" value="credentialsJSON" />
+        <param name="enabled" value="true" />
+        <param name="rootId" value="TeamcityData" />
+        <param name="showChanges" value="false" />
+      </parameters>
+    </extension>
+  </project-extensions>
+  <cleanup>
+    <policy type="days" cleanup-level="HISTORY_ENTRY">
+      <parameters>
+        <param name="keepDays.count" value="30" />
+      </parameters>
+    </policy>
+    <policy type="days" cleanup-level="ARTIFACTS">
+      <parameters>
+        <param name="keepDays.count" value="1" />
+      </parameters>
+    </policy>
+    <options>
+      <option name="preventDependenciesArtifactsFromCleanup" value="false" />
+    </options>
+  </cleanup>
+</project>
+

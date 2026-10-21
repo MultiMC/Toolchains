@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<build-type xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="48acdd46-fc0f-4593-aa4b-6bb9d16c6b85" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2020.1/project-config.xsd">
+  <name>Build</name>
+  <description>Broken.</description>
+  <settings ref="MultiMC_Launcher_BuildLauncher">
+    <options>
+      <option name="buildNumberPattern" value="%dep.MultiMC_Launcher_GenerateBuildNumber.build.number%" />
+    </options>
+    <parameters>
+      <param name="JOIN" value="^" />
+      <param name="c_compiler" value="gcc" />
+      <param name="cmake_extra_args" value="-G &quot;MinGW Makefiles&quot; &quot;-DCMAKE_GP_CMD_PATHS=C:/Tools&quot; &quot;-DCMAKE_GP_TOOL=dumpbin&quot;" />
+      <param name="cxx_compiler" value="g++" />
+      <param name="env.PATH" value="C:\Qt\Tools\mingw492_32\bin;C:\Qt\5.6.3\mingw49_32\bin;%env.PATH%" />
+      <param name="layout" value="win-bundle" />
+      <param name="make_cmd" value="mingw32-make" />
+      <param name="qt_path" value="C:\Qt\5.6.3\mingw49_32" />
+      <param name="remove_command" value="rmdir /S /Q" />
+      <param name="root_name" value="MultiMC" />
+    </parameters>
+    <build-runners order="RUNNER_1, RUNNER_15, RUNNER_2, RUNNER_3, RUNNER_5, RUNNER_4, RUNNER_6, RUNNER_8">
+      <runner id="RUNNER_6" name="Add OpenSSL" type="simpleRunner">
+        <parameters>
+          <param name="script.content" value="copy &quot;C:\OpenSSL-Win32\*.dll&quot; &quot;%install_prefix%&quot;" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+      <runner id="RUNNER_3" name="Test" type="simpleRunner">
+        <parameters>
+          <param name="script.content" value="ctest -V" />
+          <param name="teamcity.build.workingDir" value="build" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+    </build-runners>
+    <vcs-settings />
+    <requirements>
+      <equals id="RQ_1" name="system.agent.name" value="Windows7" />
+    </requirements>
+    <build-triggers>
+      <build-trigger id="vcsTrigger" type="vcsTrigger">
+        <parameters>
+          <param name="branchFilter" value="+:*" />
+          <param name="enableQueueOptimization" value="true" />
+          <param name="quietPeriodMode" value="DO_NOT_USE" />
+        </parameters>
+      </build-trigger>
+    </build-triggers>
+    <cleanup />
+  </settings>
+</build-type>
+

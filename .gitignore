@@ -1,24 +1,21 @@
 .env
 
-# Large archives live outside git (see images/README.md, macos/README.md)
+# KDevelop project files
+*.kdev4
+
+# Large files live outside git (archived and mirrored; checksums and READMEs are tracked)
 *.tar
 *.tar.zst
 *.tar.xz
 *.tar.gz
 *.zip
-macos/cross/work/
-macos/cross/*.log
 *.qcow2
 *.iso
 
-# KDevelop project files
-*.kdev4
+# Container inputs too large for git (in the archives)
+containers/windows-win32/Tools/
+containers/windows-win32/GE-Proton*/
 
-# Windows Wine toolchain: large tool trees, Proton, prefix and build output
-windows/Tools/
-windows/GE-Proton*/
-windows/WineRoot/
-windows/Data/
-translations/*.log
-windows/*.log
-pipeline/state/
+# Build logs and automation state
+*.log
+automation/state/

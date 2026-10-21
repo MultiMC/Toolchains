@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<vcs-root xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="4503bb12-92eb-4a4e-bbdd-2e9bb4be8512" type="jetbrains.git" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2021.1/project-config.xsd">
+  <name>MultiMC</name>
+  <param name="agentCleanFilesPolicy" value="ALL_UNTRACKED" />
+  <param name="agentCleanPolicy" value="ON_BRANCH_CHANGE" />
+  <param name="authMethod" value="TEAMCITY_SSH_KEY" />
+  <param name="branch" value="develop" />
+  <param name="ignoreKnownHosts" value="true" />
+  <param name="secure:password" value="" />
+  <param name="submoduleCheckout" value="CHECKOUT" />
+  <param name="teamcity:branchSpec"><![CDATA[+:refs/heads/stable
++:refs/heads/feature/*]]></param>
+  <param name="teamcitySshKey" value="BuildBot" />
+  <param name="url" value="git@github.com:MultiMC/Launcher.git" />
+  <param name="useAlternates" value="true" />
+  <param name="userForTags" value="CreepBot &lt;buildbot-noreply@multimc.org&gt;" />
+  <param name="username" value="git" />
+  <param name="usernameStyle" value="USERID" />
+</vcs-root>
+

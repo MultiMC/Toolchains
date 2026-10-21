@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<build-type xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="caee61eb-88ea-477a-b47c-7d890d2daead" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2021.1/project-config.xsd">
+  <name>Update Template</name>
+  <description />
+  <settings>
+    <options>
+      <option name="checkoutMode" value="ON_AGENT" />
+    </options>
+    <parameters />
+    <build-runners>
+      <runner id="RUNNER_25" name="Update template" type="simpleRunner">
+        <parameters>
+          <param name="plugin.docker.imageId" value="%container_translations%" />
+          <param name="plugin.docker.imagePlatform" value="linux" />
+          <param name="script.content"><![CDATA[set -e
+set -x
+
+QT_BASE_DIR=/opt/qt54
+export QTDIR=$QT_BASE_DIR
+export PATH=$QT_BASE_DIR/bin:$PATH
+
+bash ./update.sh
+
+echo ==================
+cat ~/.ssh/known_hosts
+echo ==================
+
+git add template.pot
+git -c user.name='Automation' -c user.email='automation@multimc.org' commit -m "Update translation template for latest MultiMC code"
+git push origin master]]></param>
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+    </build-runners>
+    <vcs-settings>
+      <vcs-entry-ref root-id="MultiMC_Launcher_Translations_MultiMC5translate" />
+      <vcs-entry-ref root-id="MultiMC">
+        <checkout-rule rule="+:. =&gt; src" />
+      </vcs-entry-ref>
+    </vcs-settings>
+    <requirements />
+    <build-triggers />
+    <build-extensions>
+      <extension id="ssh-agent-build-feature" type="ssh-agent-build-feature">
+        <parameters>
+          <param name="teamcitySshKey" value="Translator Deploy Key" />
+        </parameters>
+      </extension>
+    </build-extensions>
+    <cleanup />
+  </settings>
+</build-type>
+

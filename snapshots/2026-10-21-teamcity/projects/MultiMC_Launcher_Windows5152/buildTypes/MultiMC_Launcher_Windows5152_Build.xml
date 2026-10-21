@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<build-type xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" uuid="32ea14e3-29c7-4eb9-8cfa-983e7016f927" paused="true" xsi:noNamespaceSchemaLocation="https://www.jetbrains.com/teamcity/schemas/2021.1/project-config.xsd">
+  <name>Build</name>
+  <description>Broken.</description>
+  <settings ref="MultiMC_Launcher_BuildLauncher">
+    <parameters>
+      <param name="JOIN" value="^" spec="text display='normal' description='The character for joining multiline commands in a shell.' validationMode='any'" />
+      <param name="buildFolder" value="build-5.15.2" />
+      <param name="c_compiler" value="gcc" />
+      <param name="cmake_extra_args" value="-G &quot;MinGW Makefiles&quot; &quot;-DCMAKE_GP_CMD_PATHS=C:/Tools&quot; &quot;-DCMAKE_GP_TOOL=dumpbin&quot;" />
+      <param name="cxx_compiler" value="g++" />
+      <param name="env.Path" value="C:\QtX\Tools\mingw810_32\bin;C:\QtX\5.15.2\mingw81_32\bin;%env.Path%" />
+      <param name="layout" value="win-bundle" />
+      <param name="make_cmd" value="mingw32-make" />
+      <param name="qt_path" value="C:\QtX\5.15.2\mingw81_32" />
+      <param name="remove_command" value="rmdir /S /Q" />
+      <param name="root_name" value="MultiMC" />
+    </parameters>
+    <build-runners order="RUNNER_1, RUNNER_15, RUNNER_2, RUNNER_3, RUNNER_5, RUNNER_4, RUNNER_6, RUNNER_8">
+      <runner id="RUNNER_6" name="Add OpenSSL" type="simpleRunner">
+        <parameters>
+          <param name="script.content" value="copy &quot;C:\QtX\Tools\OpenSSL\Win_x86\bin\*.dll&quot; &quot;%install_prefix%&quot;" />
+          <param name="teamcity.step.mode" value="default" />
+          <param name="use.custom.script" value="true" />
+        </parameters>
+      </runner>
+    </build-runners>
+    <vcs-settings />
+    <requirements>
+      <equals id="RQ_1" name="system.agent.name" value="Windows7" />
+    </requirements>
+    <build-triggers>
+      <build-trigger id="vcsTrigger" type="vcsTrigger">
+        <parameters>
+          <param name="branchFilter" value="+:*" />
+          <param name="enableQueueOptimization" value="true" />
+          <param name="quietPeriodMode" value="DO_NOT_USE" />
+        </parameters>
+      </build-trigger>
+    </build-triggers>
+    <cleanup />
+  </settings>
+</build-type>
+
