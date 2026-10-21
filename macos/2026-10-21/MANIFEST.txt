@@ -1,0 +1,224 @@
++ date
+Wed Oct 21 01:30:52 CEST 2026
++ hostname
+macmini.peterix.cz
++ sw_vers
+ProductName:	macOS
+ProductVersion:	11.6
+BuildVersion:	20G165
++ uname -a
+Darwin macmini.peterix.cz 20.6.0 Darwin Kernel Version 20.6.0: Mon Aug 30 06:12:21 PDT 2021; root:xnu-7195.141.6~3/RELEASE_X86_64 x86_64
++ sysctl -n hw.model machdep.cpu.brand_string
+Macmini7,1
+Intel(R) Core(TM) i5-4260U CPU @ 1.40GHz
++ xcode-select -p
+/Applications/Xcode.app/Contents/Developer
++ xcodebuild -version
+Xcode 12.4
+Build version 12D4e
++ xcodebuild -showsdks
+iOS SDKs:
+	iOS 14.4                      	-sdk iphoneos14.4
+
+iOS Simulator SDKs:
+	Simulator - iOS 14.4          	-sdk iphonesimulator14.4
+
+macOS SDKs:
+	DriverKit 20.2                	-sdk driverkit.macosx20.2
+	Mac OS X 10.7                 	-sdk macosx10.7
+	OS X 10.8                     	-sdk macosx10.8
+	macOS 11.1                    	-sdk macosx11.1
+
+tvOS SDKs:
+	tvOS 14.3                     	-sdk appletvos14.3
+
+tvOS Simulator SDKs:
+	Simulator - tvOS 14.3         	-sdk appletvsimulator14.3
+
+watchOS SDKs:
+	watchOS 7.2                   	-sdk watchos7.2
+
+watchOS Simulator SDKs:
+	Simulator - watchOS 7.2       	-sdk watchsimulator7.2
+
++ ls /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/ /Library/Developer/CommandLineTools/SDKs
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/:
+DriverKit20.2.sdk
+MacOSX.sdk
+MacOSX10.7.sdk
+MacOSX10.8.sdk
+MacOSX11.1.sdk
+
+/Library/Developer/CommandLineTools/SDKs:
+MacOSX.sdk
+MacOSX10.15.sdk
+MacOSX11.3.sdk
+MacOSX11.sdk
++ xcrun --show-sdk-version
+11.1
++ xcrun --show-sdk-path
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
++ /usr/bin/clang --version
+Apple clang version 12.0.0 (clang-1200.0.32.29)
+Target: x86_64-apple-darwin20.6.0
+Thread model: posix
+InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
++ /usr/bin/clang++ --version
+Apple clang version 12.0.0 (clang-1200.0.32.29)
+Target: x86_64-apple-darwin20.6.0
+Thread model: posix
+InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
++ pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
+package-id: com.apple.pkg.CLTools_Executables
+version: 13.0.0.0.1.1630607135
+volume: /
+location: /
+install-time: 1634756120
+groups: com.apple.FindSystemFiles.pkg-group 
++ /usr/local/bin/cmake --version
+cmake version 3.20.0
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
++ java -version
+java version "1.8.0_281"
+Java(TM) SE Runtime Environment (build 1.8.0_281-b09)
+Java HotSpot(TM) 64-Bit Server VM (build 25.281-b09, mixed mode)
++ /usr/libexec/java_home -V
+Matching Java Virtual Machines (3):
+    1.8.281.09 (x86_64) "Oracle Corporation" - "Java" /Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home
+    1.8.0_281 (x86_64) "Oracle Corporation" - "Java SE 8" /Library/Java/JavaVirtualMachines/jdk1.8.0_281.jdk/Contents/Home
+/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home
+    1.8.0_74 (x86_64) "Oracle Corporation" - "Java SE 8" /Library/Java/JavaVirtualMachines/jdk1.8.0_74.jdk/Contents/Home
++ ls /Library/Java/JavaVirtualMachines
+jdk1.8.0_281.jdk
+jdk1.8.0_74.jdk
++ ls /usr/local/bin
+buildbot
+buildslave
+capinfos
+ccmake
+cmake
+cmake-gui
+cpack
+ctest
+dftest
+dumpcap
+editcap
+mergecap
+migrate
+migrate-repository
+pip
+pip2
+pip2.7
+randpkt
+rawshark
+text2pcap
+tshark
+wireshark
++ brew list --versions
++ cat /Users/peterix/Qt/5.15.2/clang_64/bin/qt.conf /Users/peterix/Qt/5.6.3/clang_64/bin/qt.conf
+[Paths]
+Documentation=../../Docs/Qt-5.15.2
+Examples=../../Examples/Qt-5.15.2
+Prefix=..
+[Paths]
+Documentation=../../Docs/Qt-5.6.3
+Examples=../../Examples/Qt-5.6.3
+Prefix=..
++ /Users/peterix/Qt/5.15.2/clang_64/bin/qmake -query
+QT_SYSROOT:
+QT_INSTALL_PREFIX:/Users/peterix/Qt/5.15.2/clang_64
+QT_INSTALL_ARCHDATA:/Users/peterix/Qt/5.15.2/clang_64
+QT_INSTALL_DATA:/Users/peterix/Qt/5.15.2/clang_64
+QT_INSTALL_DOCS:/Users/peterix/Qt/Docs/Qt-5.15.2
+QT_INSTALL_HEADERS:/Users/peterix/Qt/5.15.2/clang_64/include
+QT_INSTALL_LIBS:/Users/peterix/Qt/5.15.2/clang_64/lib
+QT_INSTALL_LIBEXECS:/Users/peterix/Qt/5.15.2/clang_64/libexec
+QT_INSTALL_BINS:/Users/peterix/Qt/5.15.2/clang_64/bin
+QT_INSTALL_TESTS:/Users/peterix/Qt/5.15.2/clang_64/tests
+QT_INSTALL_PLUGINS:/Users/peterix/Qt/5.15.2/clang_64/plugins
+QT_INSTALL_IMPORTS:/Users/peterix/Qt/5.15.2/clang_64/imports
+QT_INSTALL_QML:/Users/peterix/Qt/5.15.2/clang_64/qml
+QT_INSTALL_TRANSLATIONS:/Users/peterix/Qt/5.15.2/clang_64/translations
+QT_INSTALL_CONFIGURATION:/Users/peterix/Qt/5.15.2/clang_64
+QT_INSTALL_EXAMPLES:/Users/peterix/Qt/Examples/Qt-5.15.2
+QT_INSTALL_DEMOS:/Users/peterix/Qt/Examples/Qt-5.15.2
+QT_HOST_PREFIX:/Users/peterix/Qt/5.15.2/clang_64
+QT_HOST_DATA:/Users/peterix/Qt/5.15.2/clang_64
+QT_HOST_BINS:/Users/peterix/Qt/5.15.2/clang_64/bin
+QT_HOST_LIBS:/Users/peterix/Qt/5.15.2/clang_64/lib
+QMAKE_SPEC:macx-clang
+QMAKE_XSPEC:macx-clang
+QMAKE_VERSION:3.1
+QT_VERSION:5.15.2
++ /Users/peterix/Qt/5.6.3/clang_64/bin/qmake -query
+QT_SYSROOT:
+QT_INSTALL_PREFIX:/Users/peterix/Qt/5.6.3/clang_64
+QT_INSTALL_ARCHDATA:/Users/peterix/Qt/5.6.3/clang_64
+QT_INSTALL_DATA:/Users/peterix/Qt/5.6.3/clang_64
+QT_INSTALL_DOCS:/Users/peterix/Qt/Docs/Qt-5.6.3
+QT_INSTALL_HEADERS:/Users/peterix/Qt/5.6.3/clang_64/include
+QT_INSTALL_LIBS:/Users/peterix/Qt/5.6.3/clang_64/lib
+QT_INSTALL_LIBEXECS:/Users/peterix/Qt/5.6.3/clang_64/libexec
+QT_INSTALL_BINS:/Users/peterix/Qt/5.6.3/clang_64/bin
+QT_INSTALL_TESTS:/Users/peterix/Qt/5.6.3/clang_64/tests
+QT_INSTALL_PLUGINS:/Users/peterix/Qt/5.6.3/clang_64/plugins
+QT_INSTALL_IMPORTS:/Users/peterix/Qt/5.6.3/clang_64/imports
+QT_INSTALL_QML:/Users/peterix/Qt/5.6.3/clang_64/qml
+QT_INSTALL_TRANSLATIONS:/Users/peterix/Qt/5.6.3/clang_64/translations
+QT_INSTALL_CONFIGURATION:/Users/peterix/Qt/5.6.3/clang_64
+QT_INSTALL_EXAMPLES:/Users/peterix/Qt/Examples/Qt-5.6.3
+QT_INSTALL_DEMOS:/Users/peterix/Qt/Examples/Qt-5.6.3
+QT_HOST_PREFIX:/Users/peterix/Qt/5.6.3/clang_64
+QT_HOST_DATA:/Users/peterix/Qt/5.6.3/clang_64
+QT_HOST_BINS:/Users/peterix/Qt/5.6.3/clang_64/bin
+QT_HOST_LIBS:/Users/peterix/Qt/5.6.3/clang_64/lib
+QMAKE_SPEC:macx-clang
+QMAKE_XSPEC:macx-clang
+QMAKE_VERSION:3.0
+QT_VERSION:5.6.3
++ cat /Users/peterix/Library/LaunchAgents/jetbrains.teamcity.BuildAgent.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Debug</key>
+	<false/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>jetbrains.teamcity.BuildAgent</string>
+	<key>LowPriorityBackgroundIO</key>
+	<false/>
+	<key>LowPriorityIO</key>
+	<false/>
+	<key>OnDemand</key>
+	<false/>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>--login</string>
+		<string>-c</string>
+		<string>bin/agent.sh run</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>logs/launchd.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/dev/null</string>
+	<key>WorkingDirectory</key>
+	<string>/Users/peterix/buildAgent</string>
+        <key>UserName</key>
+        <string>peterix</string>
+</dict>
+</plist>
++ grep -vE '^#|^$' /Users/peterix/buildAgent/conf/buildAgent.properties
++ grep -vi token
+serverUrl=https://teamcity.multimc.org/
+name=MacMini
+workDir=../work
+tempDir=../temp
+systemDir=../system
