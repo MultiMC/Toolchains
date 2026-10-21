@@ -1,1 +1,10 @@
 .env
+
+# Large archives live outside git (see images/README.md, macos/README.md)
+*.tar
+*.tar.zst
+*.tar.xz
+*.tar.gz
+*.zip
+macos/cross/work/
+macos/cross/*.log

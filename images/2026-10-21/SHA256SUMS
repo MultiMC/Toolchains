@@ -1,0 +1,5 @@
+85472bdc91dc50f51ea4eca3cbc12cac34c4474e44965a8f8b1aed47b08825eb  toolchains-deployer.tar.zst
+c7edc9fac176f1a11e2031afca39a1e95c041f0151083cfc6510d570bf8da16e  toolchains-linux-x32.tar.zst
+33ad5a11a7a5a68cb075191869989290e59af91e124913d74e3665b6d4df244c  toolchains-linux-x64.tar.zst
+5f6170875a8575441677985beb2ae95be59543cb2c0eb2d840c12d63e2e44415  toolchains-site.tar.zst
+5cc80efdd37a59cff03b93b5d9b3881a548131a50870cf8ebdaffae8d458b55c  toolchains-windows.tar.zst
