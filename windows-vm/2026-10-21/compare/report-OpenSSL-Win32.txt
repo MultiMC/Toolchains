@@ -1,0 +1,2 @@
+ONLY_VM	HashInfo.txt:Zone.Identifier
+ONLY_VM	OpenSSL License.txt:Zone.Identifier

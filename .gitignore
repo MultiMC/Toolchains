@@ -8,3 +8,14 @@
 *.zip
 macos/cross/work/
 macos/cross/*.log
+*.qcow2
+*.iso
+
+# KDevelop project files
+*.kdev4
+
+# Windows Wine toolchain: large tool trees, Proton, prefix and build output
+windows/Tools/
+windows/GE-Proton*/
+windows/WineRoot/
+windows/Data/
