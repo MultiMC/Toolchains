@@ -19,3 +19,6 @@ windows/Tools/
 windows/GE-Proton*/
 windows/WineRoot/
 windows/Data/
+translations/*.log
+windows/*.log
+pipeline/state/
