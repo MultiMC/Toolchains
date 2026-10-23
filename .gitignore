@@ -19,3 +19,6 @@ containers/windows-win32/GE-Proton*/
 # Build logs and automation state
 *.log
 automation/state/
+
+# Python bytecode
+__pycache__/

@@ -3,7 +3,7 @@
 # VM's toolchain in $TOOLS: Qt 5.6.3 + MinGW 4.9.2, CMake 3.20.1, dumpbin, GnuWin32 zlib,
 # OpenSSL 1.0, JDK 8u112). Mirrors the TeamCity Windows build, under Wine.
 #
-# Contract (same for every platform, see ../run-build.sh): source in /src (read-only),
+# Contract (same for every platform, see common.build_command in ../common.py): source in /src (read-only),
 # output in /out: build tree /out/build, install tree /out/install/MultiMC, logs
 # /out/*.log; the Wine prefix lives in /out/prefix. Settings, PLATFORM and BUILD_NUMBER
 # come from the environment; TOOLS, WINE and PREFIX_TEMPLATE from the image.

@@ -2,7 +2,7 @@
 # In-container build for lin64 and lin32 (images linux-x64, linux-x32: Ubuntu 14.04,
 # g++-5, Qt 5.6.3 in /opt/qt56, cmake 3.10.0). Mirrors the TeamCity Linux builds.
 #
-# Contract (same for every platform, see ../run-build.sh): source in /src (read-only),
+# Contract (same for every platform, see common.build_command in ../common.py): source in /src (read-only),
 # output in /out: build tree /out/build, install tree /out/install/MultiMC, logs
 # /out/*.log. Settings, PLATFORM and BUILD_NUMBER come from the environment.
 

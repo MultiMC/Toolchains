@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Compatibility gate: compare a fresh Launcher build with the platform's baseline.
 
-    compat-check.py <platform> <build dir> <baseline archive> [--json out.json]
+    compat-check.py <platform> <build dir> <baseline archive> [--json out.json] [--url-map OLD=NEW]...
+
+--url-map: the build was configured with NEW where the baseline has OLD (an URL prefix,
+such as UPDATER_BASE for a test system); the URL check expects the mapped URLs.
 
 <build dir> is the install tree root (the MultiMC/ or MultiMC.app/ directory).
 <baseline archive> is a shipped package (../snapshots/<date>-deth001/downloads/): .tar.gz or .zip.
@@ -224,26 +227,40 @@ def embedded_urls(path):
     return urls
 
 
-def check_urls(platform, new, base, problems, facts):
+def check_urls(platform, new, base, problems, facts, url_map):
     rel = MAIN_BINARY.get(platform, "Contents/MacOS/MultiMC")
     if rel not in new or rel not in base:
         problems.append("main binary %s not found" % rel)
         return
     nu, bu = embedded_urls(new[rel]), embedded_urls(base[rel])
+    for old, repl in url_map:
+        bu = {repl + u[len(old):] if u.startswith(old) else u for u in bu}
+    if url_map:
+        facts["url_map"] = ["%s=%s" % m for m in url_map]
     facts["embedded_urls"] = len(nu)
     for url in sorted(bu - nu):
         problems.append("URL in the baseline's main binary is missing: %s" % url)
 
 
 def main(argv):
+
     out_json = None
     if "--json" in argv:
         i = argv.index("--json")
         out_json = argv[i + 1]
         argv = argv[:i] + argv[i + 2:]
+
+    url_map = []
+    while "--url-map" in argv:
+        i = argv.index("--url-map")
+        old, _, repl = argv[i + 1].partition("=")
+        url_map.append((old, repl))
+        argv = argv[:i] + argv[i + 2:]
+
     if len(argv) != 3:
         print(__doc__)
         return 2
+
     platform, build_dir, baseline = argv
     problems, facts = [], {}
     with tempfile.TemporaryDirectory() as tmp:
@@ -261,19 +278,24 @@ def main(argv):
             check_macos(new, base, problems, facts)
         else:
             problems.append("unknown platform %s" % platform)
-        check_urls(platform, new, base, problems, facts)
+        check_urls(platform, new, base, problems, facts, url_map)
+
     facts["files"] = len(new)
     result = {"platform": platform, "baseline": os.path.basename(baseline),
               "passed": not problems, "problems": problems, "facts": facts}
+
     if out_json:
         with open(out_json, "w") as fh:
             json.dump(result, fh, indent=2, sort_keys=True)
     print("%s: %s (%d files)" % (platform, "PASS" if not problems else "FAIL", len(new)))
+
     for k, v in sorted(facts.items()):
         if k != "files":
             print("    %s: %s" % (k, v))
+
     for p in problems:
         print("  ! " + p)
+
     return 0 if not problems else 1
 
 
