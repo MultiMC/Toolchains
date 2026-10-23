@@ -2,7 +2,7 @@
 # In-container build for osx64-5.15.2 (image macos-osx64: osxcross + SDK 11.1, the macmini
 # Qt 5.15.2 with Linux moc/rcc/uic, JDK 8). Mirrors the TeamCity macOS build, cross-built.
 #
-# Contract (same for every platform, see ../run-build.sh): source in /src (read-only),
+# Contract (same for every platform, see common.build_command in ../common.py): source in /src (read-only),
 # output in /out: build tree /out/build, install tree /out/install/MultiMC.app, logs
 # /out/*.log. Settings, PLATFORM and BUILD_NUMBER come from the environment.
 # No unit tests: they are macOS binaries.

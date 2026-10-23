@@ -15,7 +15,7 @@ README with how it was made and verified.
 ## What the images contain
 
 Toolchains only: no build steps, no entrypoint. The build steps are in
-`../automation/build/`, and `../automation/run-build.sh` runs every platform the same way:
+`../automation/build/`, and `../automation/run-build.py` runs every platform the same way:
 
     docker run --rm --network none -u <uid>:<gid> \
         -v <source>:/src:ro -v <output>:/out -v automation/build:/build:ro <settings> \
