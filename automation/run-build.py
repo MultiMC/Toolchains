@@ -9,11 +9,13 @@ source dir   a git checkout on its branch (not detached), with submodules, so th
 output dir   gets build/ (kept between runs unless CLEAN=1), install/, *.log
 build number Launcher_VERSION_BUILD (default 9999)
 
-How the container is run: see common.build_command.
+How the container is run: see common.build_command. One build at a time per output
+directory (also against release-build.py, which locks its build directories the same way).
 """
 
 import argparse
-import os
+import subprocess
+import sys
 from pathlib import Path
 
 import common
@@ -33,7 +35,8 @@ def main():
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     command = common.build_command(settings, plat, args.source.resolve(), out, args.build_number)
-    os.execvp(command[0], command)
+    with common.lock_build_output(out):
+        sys.exit(subprocess.run(command).returncode)
 
 
 if __name__ == "__main__":

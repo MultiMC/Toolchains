@@ -75,7 +75,7 @@ toolchains.
 
 ## Releases
 
-    ./release-build.py [--config FILE] [--incremental [--clean]] <build number> <out dir> [commit]
+    ./release-build.py [--config FILE] [--incremental [--clean]] [--build-number N] <out dir> [commit]
 
 1. Updates a local mirror of the Launcher repo (`state/launcher.git`) and checks out the
    branch (default `develop`) at the commit (default: its head), with submodules. The
@@ -94,13 +94,31 @@ toolchains.
 Exit status 0 only if everything built and passed the gate. About 2 minutes for a clean
 build on a 32-core machine. Output files belong to the user running it.
 
-The build number is passed explicitly. It must keep increasing for the updater; the last
-one TeamCity shipped was 4278. A counter takes over at cutover.
+### Build numbers
+
+The build number must keep increasing for the updater. `BUILD_COUNTER` is a file holding
+the last number used; without `--build-number`, `release-build.py` takes the next one and
+records it before building, so a failed build uses up its number too and no number is
+handed out twice. `--build-number N` (test builds, such as 9999) leaves the counter alone.
+The counter isn't created automatically: a missing one stops the build.
+
+- Production (`state/build-number`): not seeded yet. At cutover, seed it with the highest
+  of TeamCity's last build number and every version ID already in the channels (4278 on
+  2026-10-23), so builds continue above both.
+- files2 (`state/build-number-files2`): seeded with 5002, its own numbering.
+
+### One at a time
+
+One release build runs at a time, in any mode: they share the Launcher mirror and the
+build counter, and each uses every CPU anyway. Builds into a platform's output directory
+are locked too (`run-build.py` and `release-build.py` alike). `deploy.py`, `publish.py`,
+`files-pull.py` and `files-snapshots.py` lock the files tree they work on. A second run
+stops with an error naming the lock; locks go away with the process, however it ends.
 
 ### Incremental builds (`--incremental`)
 
 For development. The source checkout and one build tree per platform persist in
-`state/work/` (locked, so one incremental build at a time):
+`state/work/` (locked like every release build):
 
 - the checkout is updated with git (`checkout -B`, `reset --hard`, `clean -ffdx`, same for
   submodules), so only files that actually changed get new timestamps;
@@ -242,7 +260,7 @@ There is no live tree: the local `state/files2` is the only copy, nothing else w
 it, and `publish.py` just syncs it to the bucket. Builds made with `--config files2.env`
 update from files2 only.
 
-    ./release-build.py --config files2.env <build> <out>
+    ./release-build.py --config files2.env <out>
     ./deploy.py --config files2.env <out>
     ./publish.py --config files2.env [--dry-run] <out>
 

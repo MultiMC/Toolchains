@@ -141,17 +141,54 @@ def user():
 
 
 @contextmanager
-def locked(path, what):
-    """Hold an exclusive lock on `path` (a lock file); stop if someone else holds it."""
+def locked(path, busy):
+    """Hold an exclusive lock on `path` (a lock file) for the duration of a `with` block.
+    If someone else holds it, stop with the message `busy`. The lock goes away with the
+    process, however it ends."""
     with open(path, "w") as f:
         try:
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            die("%s is in use (%s)" % (what, path))
+            die("%s (locked: %s)" % (busy, path))
         yield
 
 
 # --- builds ------------------------------------------------------------------------------
+
+def lock_release():
+    """One release build at a time: they share the Launcher mirror and the build counter,
+    and each one uses every CPU anyway."""
+    STATE.mkdir(exist_ok=True)
+    return locked(STATE / "release-build.lock", "another release build is running")
+
+
+def lock_build_output(out):
+    """One build at a time into a platform's output directory (it must exist)."""
+    return locked(Path(out) / ".lock", "another build is using %s" % out)
+
+
+def next_build_number(settings):
+    """Take the next build number from BUILD_COUNTER, a file holding the last number used,
+    and record it there before returning it. The caller holds the release lock. A number is
+    never handed out twice, even if the build using it fails."""
+    counter = Path(settings["BUILD_COUNTER"])
+    if not counter.is_file():
+        die("no build counter at %s; seed it with the last build number used "
+            "(echo <number> > %s)" % (counter, counter))
+
+    last = counter.read_text().strip()
+    if not last.isdigit():
+        die("%s should hold a number, not %r" % (counter, last))
+
+    number = int(last) + 1
+    new = counter.with_name(counter.name + ".new")
+    with open(new, "w") as f:
+        f.write("%d\n" % number)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(new, counter)
+    return number
+
 
 def build_command(settings, plat, src, out, build_number):
     """The docker command that builds one platform. The same for every platform: its image,
@@ -172,7 +209,7 @@ def build_command(settings, plat, src, out, build_number):
 def lock_files(settings):
     """Lock the local files tree (FILES_ROOT) for the duration of a `with` block."""
     root = Path(settings["FILES_ROOT"])
-    return locked(str(root) + ".lock", root)
+    return locked(str(root) + ".lock", "%s is in use by another script" % root)
 
 
 def pull_files(settings, dry_run=False):
