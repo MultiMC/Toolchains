@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Build, package and verify a Launcher release for all platforms. Deploys nothing.
 
-    release-build.py [--config FILE] [--incremental [--clean]] <build number> <out dir> [commit]
+    release-build.py [--config FILE] [--incremental [--clean]] [--build-number N] <out dir> [commit]
 
 --config      settings file overriding defaults.env (environment overrides both)
 --incremental reuse a persistent source checkout and per-platform build trees in
               state/work (for development). The checkout is updated with git, so only
               changed files get new timestamps; CMake configure runs every time.
 --clean       with --incremental: start the persistent build trees from scratch
-build number  Launcher_VERSION_BUILD; must keep increasing for the updater
+--build-number
+              use N instead of the next number from the build counter (BUILD_COUNTER),
+              which is then left alone; for test builds
 out dir       new, empty directory for this release
 commit        a commit on LAUNCHER_BRANCH (default: its current head)
 
@@ -17,6 +19,10 @@ branch, so the commit and refs/heads/<branch> get embedded) at the commit, build
 in parallel in their toolchain containers, package them like TeamCity's deploy did, run
 compat-check.py against BASELINES, write manifest.json.
 Exit status 0 only if every build and every compatibility check passed.
+
+The build number (Launcher_VERSION_BUILD) must keep increasing for the updater. Without
+--build-number it is the next one from BUILD_COUNTER, taken (and recorded) before building,
+so a failed build uses up its number too. One release build runs at a time.
 """
 
 import argparse
@@ -42,7 +48,7 @@ def main():
     parser.add_argument("--config", help="settings file overriding defaults.env")
     parser.add_argument("--incremental", action="store_true")
     parser.add_argument("--clean", action="store_true")
-    parser.add_argument("build_number", type=int)
+    parser.add_argument("--build-number", type=int)
     parser.add_argument("out", type=Path)
     parser.add_argument("commit", nargs="?")
     args = parser.parse_args()
@@ -51,16 +57,22 @@ def main():
 
     settings = common.load_settings(args.config)
     out = args.out.resolve()
-    if out.exists() and any(out.iterdir()):
-        common.die("%s is not empty" % out)
-    out.mkdir(parents=True, exist_ok=True)
-    common.STATE.mkdir(exist_ok=True)
 
-    with ExitStack() as stack:
+    with common.lock_release():
+        if out.exists() and any(out.iterdir()):
+            common.die("%s is not empty" % out)
+
+        if args.build_number is None:
+            build_number = common.next_build_number(settings)
+            log("build number %d (from %s)" % (build_number, settings["BUILD_COUNTER"]))
+        else:
+            build_number = args.build_number
+            log("build number %d (given; the counter is left alone)" % build_number)
+        out.mkdir(parents=True, exist_ok=True)
+
         if args.incremental:
             work = common.STATE / "work"
             work.mkdir(exist_ok=True)
-            stack.enter_context(common.locked(work / ".lock", "another incremental build"))
             src, build_root = work / "src", work / "build"
             settings["CLEAN"] = "1" if args.clean else "0"
         else:
@@ -70,15 +82,16 @@ def main():
         branch = settings["LAUNCHER_BRANCH"]
         commit = checkout(settings, branch, args.commit, src)
         platforms = settings.platforms()
-        build(settings, platforms, src, build_root, out, args.build_number)
+        build(settings, platforms, src, build_root, out, build_number)
         package(platforms, branch, build_root, out)
         passed = gate(settings, platforms, build_root, out)
-        write_manifest(settings, platforms, branch, commit, args, src, build_root, out, passed)
+        write_manifest(settings, platforms, branch, commit, build_number, args.incremental,
+                       src, build_root, out, passed)
 
     if not all(passed.values()):
         log("NOT RELEASABLE: compatibility check failed for %s" % " ".join(p for p, ok in passed.items() if not ok))
         sys.exit(1)
-    log("releasable: build %d of %s, see %s" % (args.build_number, commit, out / "manifest.json"))
+    log("releasable: build %d of %s, see %s" % (build_number, commit, out / "manifest.json"))
 
 
 def checkout(settings, branch, commit, src):
@@ -116,18 +129,21 @@ def build(settings, platforms, src, build_root, out, build_number):
     """Build every platform in parallel, each logging to build-<platform>.log."""
     log("building %s (CLEAN=%s)" % (" ".join(p.name for p in platforms), settings["CLEAN"]))
     running = {}
-    for p in platforms:
-        (build_root / p.name).mkdir(parents=True, exist_ok=True)
-        command = common.build_command(settings, p, src, build_root / p.name, build_number)
-        with open(out / ("build-%s.log" % p.name), "w") as logfile:
-            running[p.name] = subprocess.Popen(command, stdout=logfile, stderr=subprocess.STDOUT)
     failed = []
-    for name, process in running.items():
-        if process.wait() == 0:
-            log("  %s: built" % name)
-        else:
-            log("  %s: BUILD FAILED (see build-%s.log)" % (name, name))
-            failed.append(name)
+    with ExitStack() as locks:
+        for p in platforms:
+            (build_root / p.name).mkdir(parents=True, exist_ok=True)
+            locks.enter_context(common.lock_build_output(build_root / p.name))
+            command = common.build_command(settings, p, src, build_root / p.name, build_number)
+            with open(out / ("build-%s.log" % p.name), "w") as logfile:
+                running[p.name] = subprocess.Popen(command, stdout=logfile, stderr=subprocess.STDOUT)
+
+        for name, process in running.items():
+            if process.wait() == 0:
+                log("  %s: built" % name)
+            else:
+                log("  %s: BUILD FAILED (see build-%s.log)" % (name, name))
+                failed.append(name)
     if failed:
         common.die("build failed: %s" % " ".join(failed))
 
@@ -192,13 +208,13 @@ def version_name(src):
     return ".".join(m.group(1) for m in parts)
 
 
-def write_manifest(settings, platforms, branch, commit, args, src, build_root, out, passed):
+def write_manifest(settings, platforms, branch, commit, build_number, incremental, src, build_root, out, passed):
     manifest = {
         "commit": commit,
         "branch": branch,
-        "build_number": args.build_number,
+        "build_number": build_number,
         "version_name": version_name(src),
-        "mode": "incremental" if args.incremental else "clean",
+        "mode": "incremental" if incremental else "clean",
         "updater_base": settings["UPDATER_BASE"],
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "platforms": {},
