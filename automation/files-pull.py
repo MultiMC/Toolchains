@@ -3,7 +3,9 @@
 
     files-pull.py [--config FILE] [--dry-run]
 
-Overwrites local changes (rsync --delete): whatever deploy.py put there is gone afterwards.
+Overwrites local changes (rsync --delete), after taking a read-only snapshot of the tree
+(files-snapshots.py lists and restores them). A tree that doesn't exist yet is created as a
+btrfs subvolume.
 """
 
 import argparse

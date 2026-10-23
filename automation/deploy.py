@@ -12,6 +12,8 @@ as the calling user, without network: for each platform,
 which adds update/<platform>/<branch>/<build>.json, adds it to the channel's index.json,
 copies files the store doesn't have yet into files/<md5>-<name>, and replaces the download
 package. Nothing is published; the tree stays local (publish.py does that).
+Before changing the tree it takes a read-only snapshot of it (files-snapshots.py lists and
+restores them); a tree that isn't a btrfs subvolume is refused.
 
 Refuses a release that isn't releasable, one built for another tree (its UPDATER_BASE must
 be the tree's update/config.json base_url), and one whose build number isn't higher than
@@ -58,6 +60,9 @@ def main():
             last = max([int(v["Id"]) for v in versions] or [0])
             if build <= last:
                 common.die("%s/%s already has build %d; %d is not newer" % (p.name, branch, last, build))
+
+        snapshot = common.snapshot_files(settings, "before-deploy-%d" % build)
+        log("snapshot of the tree as it was: %s" % snapshot.name)
 
         with tempfile.TemporaryDirectory(dir=release, prefix=".deploy.") as work:
             for p in platforms:

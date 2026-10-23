@@ -12,6 +12,7 @@ the files tree, publish to the live tree and S3. TeamCity still does the real re
 | `deploy.py` | Deploys a release into the local files tree |
 | `publish.py` | Publishes a deployed release to the live tree and S3 |
 | `files-pull.py` | Makes the local files tree a copy of the live one |
+| `files-snapshots.py` | Lists, takes, restores and removes snapshots of the local files tree |
 | `common.py` | Shared by the scripts: settings, platforms, the container command, locking |
 | `defaults.env` | Every setting, with its default |
 | `files2.env` | Settings for the files2 test system |
@@ -33,10 +34,12 @@ automation measures up:
   that differs from the shipped builds; `deploy.py` refuses releases that aren't
   releasable, were built for another system, or aren't newer; `publish.py` refuses when
   the live tree changed underneath it; settings files with unknown keys are refused.
-- **Not yet versioned:** `deploy.py` changes the local files tree in place, and
-  `publish.py` overwrites the live indexes and downloads. Undo today is `files-pull.py`
-  (only where a live tree exists; files2's local tree is its only copy), and nothing
-  undoes a publish. Release directories are kept wherever they were built.
+- **Versioned locally:** the local files trees are btrfs subvolumes, snapshotted before
+  every change (`deploy.py`, `files-pull.py`); any earlier state can be inspected or
+  restored with `files-snapshots.py`.
+- **Not yet versioned:** `publish.py` overwrites the live indexes and downloads, and
+  nothing undoes a publish (restoring a snapshot and publishing again only adds files).
+  Release directories are kept wherever they were built.
 
 The scripts on the host are Python (3.12 or newer, standard library only). The build steps
 run inside the containers are plain bash: the Windows image has no Python.
@@ -203,6 +206,28 @@ tree, with mode 664; S3 got exactly the release's 104 files, including the osx64
 copy (= the new package); a second run changed nothing; a version added to the live index
 meanwhile stopped it. Not yet run against deth001 or the S3 copy of files.multimc.org.
 
+### Snapshots (`files-snapshots.py`)
+
+    ./files-snapshots.py list | create <label> | restore <snapshot> | remove <snapshot>... | init
+
+Each files tree (`FILES_ROOT`) is a btrfs subvolume. Read-only snapshots of it are kept
+next to it, in `FILES_ROOT.snapshots/<time>-<label>`; `deploy.py` (`before-deploy-<build>`)
+and `files-pull.py` (`before-pull`) take one before every change and refuse a tree that
+isn't a subvolume. Snapshots share unchanged data with the tree, so each costs roughly what
+changed after it (a release: ~100 MB). They're plain directories: `diff -r` a snapshot
+against the tree to see what a deploy did.
+
+`restore` takes a snapshot of the current state first (`before-restore`), so a restore can
+be undone too, then makes the tree match the snapshot (`rsync --delete --checksum`). It
+changes only the local tree. `remove` works without root (btrfs only lets the owner delete
+a subvolume once it's writable and empty, which `remove` does). `init` turns an existing
+directory into a subvolume: reflink copy, compare, swap; the old directory stays as
+`FILES_ROOT.pre-subvolume` to delete by hand. Nothing prunes snapshots yet.
+
+Verified 2026-10-23 on a copy of the tree: a deploy's snapshot showed exactly what it
+changed, restoring it gave back the original tree byte for byte, and deploying again
+worked. `state/files` and `state/files2` were converted with `init` the same day.
+
 ### `files-pull.py`
 
 Overwrites the local tree (`rsync --delete`), so it also undoes local test deploys. The
@@ -230,7 +255,10 @@ took 40 min; a release takes ~40 s. R2 refuses s3cmd's server-side copies (files
 appear under two names); s3cmd uploads those instead.
 
 Verified 2026-10-23: a Launcher from files2 build 5000 (lin64) offered build 5001 after it
-was published, and updated itself to it.
+was published, and updated itself to it. Then Launchers from build 5001 on Windows 11,
+macOS 11 (macmini) and Linux (lin64) all updated themselves to 5002, the first real runs
+of the cross-built Windows and macOS Launchers (they also start, log in and launch the
+game). lin32 is not tested yet.
 
 ## Requirements
 

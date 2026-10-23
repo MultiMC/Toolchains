@@ -176,14 +176,55 @@ def lock_files(settings):
 
 
 def pull_files(settings, dry_run=False):
-    """Make FILES_ROOT an exact copy of FILES_ORIGIN (rsync --delete)."""
+    """Make FILES_ROOT an exact copy of FILES_ORIGIN (rsync --delete), after a snapshot.
+    A tree that doesn't exist yet is created as a subvolume."""
     root = Path(settings["FILES_ROOT"])
     if not settings["FILES_ORIGIN"]:
         die("no FILES_ORIGIN: %s is the only copy, nothing to pull" % root)
-    root.mkdir(parents=True, exist_ok=True)
+
+    root.parent.mkdir(parents=True, exist_ok=True)
     with lock_files(settings):
-        options = ["--dry-run", "--info=stats1,name1"] if dry_run else ["--info=stats1"]
-        run("rsync", "-a", "--delete", *options, settings["FILES_ORIGIN"], str(root) + "/")
+        if dry_run:
+            run("rsync", "-a", "--delete", "--dry-run", "--info=stats1,name1",
+                settings["FILES_ORIGIN"], str(root) + "/")
+            return
+
+        if root.exists():
+            snapshot_files(settings, "before-pull")
+        else:
+            run("btrfs", "subvolume", "create", root, stdout=subprocess.DEVNULL)
+        run("rsync", "-a", "--delete", "--info=stats1", settings["FILES_ORIGIN"], str(root) + "/")
+
+
+# Snapshots: FILES_ROOT is a btrfs subvolume; read-only snapshots of it are kept next to it
+# in FILES_ROOT.snapshots/<time>-<label>. They share unchanged data with the tree, so they
+# cost roughly what changed. Taking them needs no root; see files-snapshots.py.
+
+def snapshots_dir(settings):
+    return Path(settings["FILES_ROOT"] + ".snapshots")
+
+
+def is_subvolume(path):
+    """On btrfs, the top directory of a subvolume is always inode 256. (`btrfs subvolume show`
+    would need root.)"""
+    path = Path(path)
+    if not path.is_dir() or path.stat().st_ino != 256:
+        return False
+    return output("stat", "-f", "-c", "%T", path) == "btrfs"
+
+
+def snapshot_files(settings, label):
+    """Take a read-only snapshot of FILES_ROOT (the caller holds its lock); return its path.
+    Stops if FILES_ROOT isn't a subvolume: nothing changes the tree without a snapshot."""
+    root = Path(settings["FILES_ROOT"])
+    if not is_subvolume(root):
+        die("%s is not a btrfs subvolume, so it can't be snapshotted (files-snapshots.py init)" % root)
+
+    directory = snapshots_dir(settings)
+    directory.mkdir(exist_ok=True)
+    snapshot = directory / ("%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), label))
+    run("btrfs", "subvolume", "snapshot", "-r", root, snapshot, stdout=subprocess.DEVNULL)
+    return snapshot
 
 
 def channel_versions(index):
