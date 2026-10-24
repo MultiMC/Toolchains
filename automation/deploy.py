@@ -71,7 +71,7 @@ def main():
                     tar.extractall(bundle_dir, filter="data")
                 package = p.package(branch)
                 log("%s: pushing version %d to %s, then %s to downloads/" % (p.name, build, branch, package))
-                repoman = ["docker", "run", "--rm", "--network", "none", "-u", common.user(), "-e", "HOME=/tmp",
+                repoman = ["docker", "run", "--rm", "--init", "--network", "none", "-u", common.user(), "-e", "HOME=/tmp",
                            "-v", "%s:/deploy/files" % root, "-v", "%s:/bundle:ro" % bundle_dir,
                            "-v", "%s:/packages:ro" % (release / "packages"),
                            "-w", "/deploy/files", settings["IMAGE_DEPLOYER"], "repoman"]

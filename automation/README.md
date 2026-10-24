@@ -1,7 +1,7 @@
 # Build automation
 
 Replaces the TeamCity Launcher builds: build, package, verify, deploy into a local copy of
-the files tree, publish to the live tree and S3. TeamCity still does the real releases.
+the files tree, publish to the live tree and a bucket. TeamCity still does the real releases.
 
 | File | What |
 |------|------|
@@ -10,8 +10,9 @@ the files tree, publish to the live tree and S3. TeamCity still does the real re
 | `build/linux.sh`, `build/win32.sh`, `build/osx64.sh` | The build steps, run inside the containers (mounted at `/build`) |
 | `compat-check.py` | The compatibility gate: compares a build with the shipped one |
 | `deploy.py` | Deploys a release into the local files tree |
-| `publish.py` | Publishes a deployed release to the live tree and S3 |
+| `publish.py` | Publishes a deployed release to the live tree and the bucket, purges Cloudflare's cache |
 | `files-pull.py` | Makes the local files tree a copy of the live one |
+| `hopper.py` | hopper: watches the branch and moves each new commit through build, deploy and publish; later also tags and the UI backend |
 | `files-snapshots.py` | Lists, takes, restores and removes snapshots of the local files tree |
 | `common.py` | Shared by the scripts: settings, platforms, the container command, locking |
 | `defaults.env` | Every setting, with its default |
@@ -39,7 +40,7 @@ automation measures up:
   restored with `files-snapshots.py`.
 - **Not yet versioned:** `publish.py` overwrites the live indexes and downloads, and
   nothing undoes a publish (restoring a snapshot and publishing again only adds files).
-  Release directories are kept wherever they were built.
+  Releases are kept in `RELEASES_DIR/<build number>` (nothing prunes them yet).
 
 The scripts on the host are Python (3.12 or newer, standard library only). The build steps
 run inside the containers are plain bash: the Windows image has no Python.
@@ -48,7 +49,7 @@ run inside the containers are plain bash: the Windows image has no Python.
 
 Every setting (repo, branch, platforms, images, clean/incremental, build type, jobs, macOS
 deployment target, extra CMake arguments, the URLs compiled into the Launcher, baselines,
-the deployer image, the files trees, the S3 target) is listed with its default in
+the deployer image, the files trees, the bucket) is listed with its default in
 `defaults.env`. Every script takes `--config FILE`, a file of the same `KEY=value` form that
 may only set settings from `defaults.env`; environment variables override both. Values may
 be quoted and may use `$TOOLCHAINS`, `$HOME` and settings defined before them.
@@ -75,7 +76,13 @@ toolchains.
 
 ## Releases
 
-    ./release-build.py [--config FILE] [--incremental [--clean]] [--build-number N] <out dir> [commit]
+    ./release-build.py [--config FILE] [--incremental [--clean]] [--build-number N] [--out DIR] [commit]
+
+The release goes into `RELEASES_DIR/<build number>` (`state/releases/`, files2:
+`state/releases-files2/`), so a plain `./release-build.py` works every time unless it hits
+a real problem (a failure, another build running). A test build reusing a number
+(`--build-number`) gets `<number>.2`, `.3`, ...; nothing is overwritten. `--out DIR` puts it
+elsewhere; DIR must be new or empty.
 
 1. Updates a local mirror of the Launcher repo (`state/launcher.git`) and checks out the
    branch (default `develop`) at the commit (default: its head), with submodules. The
@@ -98,14 +105,21 @@ build on a 32-core machine. Output files belong to the user running it.
 
 The build number must keep increasing for the updater. `BUILD_COUNTER` is a file holding
 the last number used; without `--build-number`, `release-build.py` takes the next one and
-records it before building, so a failed build uses up its number too and no number is
-handed out twice. `--build-number N` (test builds, such as 9999) leaves the counter alone.
+records it, but only once nothing can stop the build before it starts: the commit is on the
+branch, the toolchain images and the baselines are there, and the source is checked out
+(prepared in `RELEASES_DIR/.preparing-<pid>`, renamed to the build number after). A typo in
+a commit, a missing image or a failed checkout leaves the counter alone; a build that fails
+after that uses up its number, so no number is handed out twice. `--build-number N` (test builds, such as 9999) leaves the counter alone.
 The counter isn't created automatically: a missing one stops the build.
 
 - Production (`state/build-number`): not seeded yet. At cutover, seed it with the highest
   of TeamCity's last build number and every version ID already in the channels (4278 on
   2026-10-23), so builds continue above both.
 - files2 (`state/build-number-files2`): seeded with 5002, its own numbering.
+
+Standard output gets exactly one line, the release directory, as soon as it exists (also if
+the build fails later); all logging goes to standard error. So
+`./deploy.py "$(./release-build.py)"` works.
 
 ### One at a time
 
@@ -114,6 +128,16 @@ build counter, and each uses every CPU anyway. Builds into a platform's output d
 are locked too (`run-build.py` and `release-build.py` alike). `deploy.py`, `publish.py`,
 `files-pull.py` and `files-snapshots.py` lock the files tree they work on. A second run
 stops with an error naming the lock; locks go away with the process, however it ends.
+
+### Stopping
+
+SIGTERM (what a service manager sends) and Ctrl-C stop a release build cleanly: it stops its
+platform builds and exits. Every container runs with `docker run --init`: as process 1 the
+build script would ignore SIGTERM (Wine kept the Windows container alive), the init process
+passes it on and ends the container with it. Verified 2026-10-24: a release build stopped
+mid-build exits within a second and leaves no containers. `--init` changes nothing in the
+output (a build with and without it: same objects, same binaries apart from the known
+timestamps and the win32 linker bytes, see below).
 
 ### Incremental builds (`--incremental`)
 
@@ -171,7 +195,7 @@ Needs `objdump` and `llvm-otool` on the host.
 
     ./files-pull.py [--dry-run]                         # FILES_ROOT := exact copy of FILES_ORIGIN (deth001)
     ./deploy.py <release dir>                           # deploy a release into FILES_ROOT
-    ./publish.py [--dry-run] [--no-s3] <release dir>    # publish it
+    ./publish.py [--dry-run] [--no-bucket] [--no-purge] <release dir>    # publish it
 
 ### `deploy.py`
 
@@ -205,24 +229,51 @@ the downloads.
    deployed meanwhile, it stops (pull and deploy again).
 2. Copies those files to the live tree (`FILES_ORIGIN`, as `FILES_ORIGIN_OWNER`, mode
    `FILES_ORIGIN_MODE`; store files only if missing). Each file is replaced atomically.
-3. Uploads the same files to `S3_TARGET` (`s3cmd sync --files-from`, key in `S3_CONFIG`,
-   outside this repo), plus download symlinks pointing at the packages: S3 has copies of
-   those (`mmc-develop-osx64.tar.gz` -> `mmc-develop-osx64-5.15.2.tar.gz`).
+3. Uploads the same files to the bucket (`BUCKET_TARGET`, an rclone `remote:path`; the
+   rclone config with its key is `BUCKET_CONFIG`, outside this repo), plus download
+   symlinks pointing at the packages: the bucket has copies of those
+   (`mmc-develop-osx64.tar.gz` -> `mmc-develop-osx64-5.15.2.tar.gz`).
+4. Purges every file of the release (and the download symlinks) from Cloudflare's cache
+   at `PUBLIC_URL`, so the overwritten indexes and downloads are served fresh. It needs
+   `CLOUDFLARE_ZONE_ID` and an API token with Zone / Cache Purge permission in the file
+   `CLOUDFLARE_TOKEN` (outside this repo). The list is the release's files, not what was
+   transferred this time, so if the purge fails, publishing again retries it. Up to 100
+   URLs per request (Free plan); a release is ~104. Files changed by hand (e.g. a
+   `channels.json`) aren't purged by this; purge them in the dashboard.
 
-Publishing a release again is a no-op. Only this release's files go to S3: the
-translations and Patreon jobs write to the live tree too (`translations/`, `patrons.txt`)
-and upload what they change themselves; `notifications.json` is edited by hand. (TeamCity's
-deploy instead synced the whole live tree to S3 from deth001, where the tree is.)
+Without the bucket or purge settings `publish.py` refuses to start; `--no-bucket` and
+`--no-purge` skip them deliberately. Production's bucket (R2, replacing Amazon S3) doesn't
+exist yet, so `BUCKET_TARGET` is empty in `defaults.env`. Publishing a release again is a
+no-op. Only this release's files go to the bucket: the translations and Patreon jobs write
+to the live tree too (`translations/`, `patrons.txt`) and upload what they change
+themselves; `notifications.json` is edited by hand. (TeamCity's deploy instead synced the
+whole live tree to S3 from deth001, where the tree is.) `FILES_ORIGIN` can also be a local
+directory. Empty, there is no live tree: the whole local tree is synced to the bucket,
+deleting what the tree no longer has.
 
-`--no-preserve`: no owner/mode metadata on the S3 objects; s3cmd still stores the MD5s it
-compares by. `FILES_ORIGIN` can also be a local directory. Empty, there is no live tree:
-the whole local tree is synced to `S3_TARGET` with `--delete-removed` (files2).
+The bucket is written with rclone (in the deployer image): 32 transfers and checks at once,
+comparing by size and MD5 (`--checksum`), so objects uploaded earlier, also by s3cmd,
+aren't uploaded again. Measured 2026-10-24 on files2: 605 files, 0.96 GB in 10 s (s3cmd,
+one file at a time, had needed 40 min for the 3.2 GB seed); a release's bucket steps take
+~8 s instead of ~25 s. s3cmd is no longer used.
 
-Verified 2026-10-23 against local stand-ins (copies of the tree for the live tree, a
-scratch prefix in the files2 bucket for S3): the live stand-in ended identical to the local
-tree, with mode 664; S3 got exactly the release's 104 files, including the osx64 symlink's
-copy (= the new package); a second run changed nothing; a version added to the live index
-meanwhile stopped it. Not yet run against deth001 or the S3 copy of files.multimc.org.
+Verified:
+- 2026-10-23, against local stand-ins (copies of the tree for the live tree, a scratch
+  prefix in the files2 bucket): the live stand-in ended identical to the local tree, with
+  mode 664; the bucket got exactly the release's 104 files, including the osx64 symlink's
+  copy (= the new package); a second run changed nothing; a version added to the live
+  index meanwhile stopped it.
+- 2026-10-24, the purge on files2: the lin64 download was in Cloudflare's cache (`HIT`,
+  build 5002's); after publishing 5005 the next request was a `MISS` that returned 5005's
+  package, and the one after a `HIT` again.
+- 2026-10-24, the full production path on files2 (deth001 + R2 + purge): builds 5011 (with
+  s3cmd) and 5012 (with rclone, through hopper); afterwards the bucket matched the local
+  tree exactly (`rclone check`, 9774 files). Not yet run for files.multimc.org.
+
+Caching on files2 (2026-10-24): `files/*` has a Page Rule "Cache Everything" (store files
+never change, so the cache can't go stale); `downloads/` archives are cached by Cloudflare's
+defaults (4 h) and kept fresh by the purge; `update/` (indexes, version files) isn't cached,
+so Launchers always see the current channel.
 
 ### Snapshots (`files-snapshots.py`)
 
@@ -253,30 +304,72 @@ first pull is ~3 GB (2 min), later ones only the changes.
 
 ## The files2 test system (`files2.env`)
 
-A parallel system, so the whole path can be exercised without touching files.multimc.org:
-`files2.multimc.org` is served directly from the Cloudflare R2 bucket `multimc-files`
-(custom domain; the `r2.dev` address is off, so it is only reachable through Cloudflare).
-There is no live tree: the local `state/files2` is the only copy, nothing else writes to
-it, and `publish.py` just syncs it to the bucket. Builds made with `--config files2.env`
-update from files2 only.
+A parallel system set up like production, so the whole path can be exercised without
+touching files.multimc.org. Since 2026-10-24 deth001 serves the live tree
+(`/home/http/files2`, Caddy site `files2.multimc.org` next to `files`, see deth001-config),
+and the Cloudflare R2 bucket `multimc-files` holds a copy, as production's bucket will; it can serve files2 as a fallback through its custom domain (the `r2.dev`
+address is off). `state/files2` is the local working tree, nothing else writes to files2.
+Builds made with `--config files2.env` update from files2 only.
 
-    ./release-build.py --config files2.env <out>
-    ./deploy.py --config files2.env <out>
-    ./publish.py --config files2.env [--dry-run] <out>
+Moving files2 onto deth001 (2026-10-24): the production tree was copied on the server,
+rsync then made it identical to `state/files2` (131 files, 219 MB); build 5011 was then
+published through the full production path (live-index check, copy to deth001, upload to
+R2, purge), 39 s.
 
-Seeded 2026-10-23 from a copy of the live tree, with `update/config.json` (repoman's URLs)
+    ./release-build.py --config files2.env
+    ./deploy.py --config files2.env state/releases-files2/<build>
+    ./publish.py --config files2.env [--dry-run] state/releases-files2/<build>
+
+Seeded 2026-10-23 (as R2 only) from a copy of the live tree, with `update/config.json` (repoman's URLs)
 and every `update/<platform>/channels.json` pointed at files2. The Launcher takes the channel
 URLs from `channels.json`, so without the second part a files2 build checked
 files.multimc.org for updates. Build numbers there started at 5000, clear of TeamCity's
-(~4280). The key is in `S3_CONFIG` (an R2 token for that bucket). The first upload (3.2 GB)
-took 40 min; a release takes ~40 s. R2 refuses s3cmd's server-side copies (files that
-appear under two names); s3cmd uploads those instead.
+(~4280). The key is in `BUCKET_CONFIG` (an R2 token for that bucket). The first upload
+(3.2 GB, still with s3cmd) took 40 min.
 
 Verified 2026-10-23: a Launcher from files2 build 5000 (lin64) offered build 5001 after it
 was published, and updated itself to it. Then Launchers from build 5001 on Windows 11,
 macOS 11 (macmini) and Linux (lin64) all updated themselves to 5002, the first real runs
 of the cross-built Windows and macOS Launchers (they also start, log in and launch the
 game). lin32 is not tested yet.
+
+## hopper (`hopper.py`)
+
+    ./hopper.py [--config FILE] watch [--once]
+    ./hopper.py [--config FILE] release <commit>
+    ./hopper.py [--config FILE] status
+
+hopper moves Launcher builds through their stages. For now it is the trigger: `watch` looks
+at the head of `LAUNCHER_BRANCH` every `WATCH_INTERVAL` seconds (`git ls-remote`), and a
+commit it hasn't handled goes through `release-build.py`, `deploy.py` and `publish.py`,
+each only if the one before succeeded. It builds and publishes nothing itself, so every
+step can still be run and inspected by hand. Tagging, promotion, purging and the backend
+for a UI are meant to join it as further commands, working on the same files tree and
+plain state files (see `UPDATER.md` next to the Toolchains repo).
+
+- **State:** `HOPPER_STATE` (JSON) records every handled commit: time, build number,
+  release directory, status (`published`, `failed`, `interrupted`, `adopted`) and the step
+  it stopped at; `status` prints it. Each run's output goes to `HOPPER_STATE.logs/`.
+- **Fails closed:** a failed step stops the chain; a failed or interrupted commit is not
+  retried automatically (`release <commit>` retries it by hand). The next commit is handled
+  normally.
+- **First start:** with no state, the current head is recorded as `adopted`, not built: it
+  is assumed to be released already (at cutover, TeamCity's last release).
+- **Release builds started by hand** (or by anything else) make hopper skip that look and
+  try again next time, rather than record a clash as a failure.
+- **Stopping:** SIGTERM or Ctrl-C stops the running step and records the commit as
+  `interrupted`; an entry still `running` when hopper starts (after a crash or kill) is
+  recorded as `interrupted` too. One hopper per state file.
+
+Something like systemd only has to keep `./hopper.py watch` running; a unit needs little
+more than `ExecStart=<path>/hopper.py --config <file> watch`, `User=` and
+`Restart=on-failure`. Nothing else lives outside the code.
+
+Verified 2026-10-24 on files2: first start adopted the head; a new commit went through all
+steps (build 5006, published with the cache purge, 2.5 min); a commit that doesn't exist was
+recorded as failed with nothing deployed; a look while a release build ran was skipped
+without a record; a second hopper was refused; SIGTERM mid-build stopped everything within
+a second and recorded the commit as interrupted.
 
 ## Requirements
 
