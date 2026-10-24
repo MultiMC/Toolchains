@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -136,6 +137,32 @@ def output(*args):
     return run(*args, stdout=subprocess.PIPE, text=True).stdout.strip()
 
 
+class Stopped(SystemExit):
+    """Raised by SIGTERM once stop_on_sigterm() is in effect."""
+
+
+def stop_on_sigterm():
+    """Turn SIGTERM (what a service manager sends) into an exception, like Ctrl-C already is,
+    so `with` blocks and `finally` clauses run and child processes can be stopped."""
+    def handler(signum, frame):
+        raise Stopped(128 + signum)
+    signal.signal(signal.SIGTERM, handler)
+
+
+def stop(processes, timeout=60):
+    """Ask child processes to stop (SIGTERM; `docker run` passes it on to its container) and
+    wait for them; kill whatever is still running after `timeout` seconds."""
+    for process in processes:
+        if process.poll() is None:
+            process.terminate()
+    for process in processes:
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
 def user():
     return "%d:%d" % (os.getuid(), os.getgid())
 
@@ -155,11 +182,27 @@ def locked(path, busy):
 
 # --- builds ------------------------------------------------------------------------------
 
+def is_locked(path):
+    """Whether someone holds the lock on `path` right now (for skipping, not for safety)."""
+    if not Path(path).exists():
+        return False
+    with open(path) as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(f, fcntl.LOCK_UN)
+        return False
+
+
+RELEASE_LOCK = STATE / "release-build.lock"
+
+
 def lock_release():
     """One release build at a time: they share the Launcher mirror and the build counter,
     and each one uses every CPU anyway."""
     STATE.mkdir(exist_ok=True)
-    return locked(STATE / "release-build.lock", "another release build is running")
+    return locked(RELEASE_LOCK, "another release build is running")
 
 
 def lock_build_output(out):
@@ -192,11 +235,12 @@ def next_build_number(settings):
 
 def build_command(settings, plat, src, out, build_number):
     """The docker command that builds one platform. The same for every platform: its image,
-    no network, as the calling user, source at /src (read-only), output at /out, the build
+    an init process (--init: passes SIGTERM on to the build script, which as process 1
+    would ignore it, and ends the container with it), no network, as the calling user, source at /src (read-only), output at /out, the build
     steps (build/) at /build (read-only), every setting plus PLATFORM and BUILD_NUMBER in the
     environment, command `bash /build/<script>`. The images contain only toolchains."""
     env = {**settings, "PLATFORM": plat.name, "BUILD_NUMBER": str(build_number)}
-    command = ["docker", "run", "--rm", "--network", "none", "-u", user(), "-e", "HOME=/tmp",
+    command = ["docker", "run", "--rm", "--init", "--network", "none", "-u", user(), "-e", "HOME=/tmp",
                "-v", "%s:/src:ro" % src, "-v", "%s:/out" % out,
                "-v", "%s:/build:ro" % (AUTOMATION / "build")]
     for key, value in env.items():

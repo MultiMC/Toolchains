@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Publish a release that deploy.py put into the local files tree (FILES_ROOT).
 
-    publish.py [--config FILE] [--dry-run] [--no-s3] <release dir>
+    publish.py [--config FILE] [--dry-run] [--no-bucket] [--no-purge] <release dir>
 
 What a release adds to the tree, in the order it is published, so clients never see a
 version whose files aren't there yet: the version's store files (files/), the version
@@ -12,21 +12,34 @@ With FILES_ORIGIN set (a live tree other jobs also write to, like deth001's):
    release (or already includes it), so a version deployed elsewhere meanwhile isn't lost.
 2. Copies those files to the live tree (store files only if missing). Each file is
    replaced atomically.
-3. Uploads the same files to S3_TARGET, plus the download symlinks pointing at the
-   packages (S3 has copies of them). Only this release's files: the translations and
-   Patreon jobs upload what they change themselves.
+3. Uploads the same files to the bucket (BUCKET_TARGET, an rclone remote:path, with the
+   rclone config BUCKET_CONFIG; outside this repo), plus the download symlinks pointing at
+   the packages (the bucket has copies of them). Only this release's files: the
+   translations and Patreon jobs upload what they change themselves.
 
-With FILES_ORIGIN empty, FILES_ROOT is the only copy and the bucket is served directly
-(files2: R2 behind files2.multimc.org): the whole tree is synced to the bucket, deleting
-what the tree no longer has.
+With FILES_ORIGIN empty, FILES_ROOT is the only copy: the whole tree is synced to the
+bucket, deleting what the tree no longer has.
 
---dry-run only reads: shows what would be copied and uploaded.
+rclone transfers and compares many files at once (32); it compares by size and MD5, so
+objects uploaded earlier (also by s3cmd) aren't uploaded again.
+
+Last, every file of the release (and the download symlinks) is purged from Cloudflare's
+cache at PUBLIC_URL, so the overwritten indexes and downloads are served fresh. The list
+doesn't depend on what was transferred, so if the purge fails, publishing again retries
+it. Needs CLOUDFLARE_ZONE_ID and an API token with Zone / Cache Purge permission in the
+file CLOUDFLARE_TOKEN (outside this repo); without them nothing is published, unless
+--no-purge.
+
+--dry-run only reads: shows what would be copied, uploaded and purged.
+--no-bucket skips the bucket, --no-purge the purge (otherwise both are required).
 """
 
 import argparse
 import json
 import os
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import common
@@ -38,14 +51,22 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", help="settings file overriding defaults.env")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--no-s3", action="store_true")
+    parser.add_argument("--no-bucket", action="store_true")
+    parser.add_argument("--no-purge", action="store_true")
     parser.add_argument("release", type=Path)
     args = parser.parse_args()
 
     settings = common.load_settings(args.config)
-    s3 = not args.no_s3
-    if s3 and not Path(settings["S3_CONFIG"]).is_file():
-        common.die("no S3 key at %s (or use --no-s3)" % settings["S3_CONFIG"])
+    bucket = not args.no_bucket
+    if bucket and not (settings["BUCKET_TARGET"] and Path(settings["BUCKET_CONFIG"]).is_file()):
+        common.die("no bucket: BUCKET_TARGET and the rclone config BUCKET_CONFIG (%s) are needed "
+                   "(or use --no-bucket)" % settings["BUCKET_CONFIG"])
+
+    purge = not args.no_purge
+    if purge and not (settings["PUBLIC_URL"] and settings["CLOUDFLARE_ZONE_ID"]
+                      and Path(settings["CLOUDFLARE_TOKEN"]).is_file()):
+        common.die("can't purge Cloudflare's cache: PUBLIC_URL, CLOUDFLARE_ZONE_ID and the token "
+                   "file CLOUDFLARE_TOKEN (%s) are needed (or use --no-purge)" % settings["CLOUDFLARE_TOKEN"])
 
     manifest = common.read_release(args.release.resolve())
     branch, build = manifest["branch"], str(manifest["build_number"])
@@ -53,29 +74,30 @@ def main():
     origin = settings["FILES_ORIGIN"]
     root = Path(settings["FILES_ROOT"])
     log("%srelease %s build %s: %s -> %s" % ("(dry run) " if args.dry_run else "", branch, build,
-                                           " ".join(p.name for p in platforms), origin or settings["S3_TARGET"]))
+                                           " ".join(p.name for p in platforms), origin or settings["BUCKET_TARGET"]))
 
     with common.lock_files(settings):
         for p in platforms:
             if not (root / "update" / p.name / branch / (build + ".json")).is_file():
                 common.die("update/%s/%s/%s.json isn't in %s (run deploy.py)" % (p.name, branch, build, root))
 
-        if not origin:
-            if s3:
-                sync_s3(settings, args.dry_run)
-            log("done")
-            return
-
-        check_live_indexes(settings, platforms, branch, build)
         groups = release_files(root, platforms, branch, build)
-        for what, paths in groups:
-            copy(settings, what, paths, args.dry_run, *(["--ignore-existing"] if what == "store files" else []))
-        if s3:
+        if origin:
+            check_live_indexes(settings, platforms, branch, build)
             for what, paths in groups:
-                if what == "downloads":
-                    paths = paths + links_to(root / "downloads", paths)
-                upload_s3(settings, what, paths, args.dry_run)
-    log("done" if s3 else "done, S3 skipped")
+                copy(settings, what, paths, args.dry_run, *(["--ignore-existing"] if what == "store files" else []))
+
+        if bucket and origin:
+            for what, paths in groups:
+                upload_to_bucket(settings, what, paths, args.dry_run)
+        elif bucket:
+            sync_bucket(settings, args.dry_run)
+
+        if purge:
+            purge_cache(settings, [path for _, paths in groups for path in paths], args.dry_run)
+
+    skipped = [name for name, done in (("bucket", bucket), ("purge", purge)) if not done]
+    log("done" + (", skipped: " + " ".join(skipped) if skipped else ""))
 
 
 def release_files(root, platforms, branch, build):
@@ -88,12 +110,14 @@ def release_files(root, platforms, branch, build):
         versions.append("%s/%s.json" % (channel, build))
         indexes.append(channel + "/index.json")
         downloads.append("downloads/" + p.package(branch))
+    downloads += links_to(root / "downloads", downloads)
     return [("store files", sorted(store)), ("version files", versions),
             ("channel indexes", indexes), ("downloads", downloads)]
 
 
 def links_to(directory, paths):
-    """Symlinks in `directory` that point at one of `paths` (relative to the tree)."""
+    """Symlinks in `directory` that point at one of `paths` (relative to the tree). The bucket and
+    Cloudflare have copies of what they point at; the live tree has the links themselves."""
     names = {os.path.basename(p) for p in paths}
     return sorted("%s/%s" % (directory.name, link.name) for link in directory.iterdir()
                   if link.is_symlink() and os.path.basename(os.readlink(link)) in names)
@@ -136,30 +160,56 @@ def copy(settings, what, paths, dry_run, *options):
         print("    " + line)
 
 
-def s3cmd(settings, *args, **kwargs):
-    """Run s3cmd in the deployer image, with FILES_ROOT at /deploy/files (read-only).
-    --no-preserve: no owner/mode/time metadata on the objects (nothing reads it, and the
-    container doesn't know the calling user, so s3cmd warned for every file). s3cmd still
-    stores the MD5 it compares large (multipart) files by."""
-    common.run("docker", "run", "--rm", "-i", "-u", common.user(), "-e", "HOME=/tmp",
+def rclone(settings, *args, **kwargs):
+    """Run rclone in the deployer image, with FILES_ROOT at /deploy/files (read-only)."""
+    common.run("docker", "run", "--rm", "--init", "-i", "-u", common.user(), "-e", "HOME=/tmp",
                "-v", "%s:/deploy/files:ro" % settings["FILES_ROOT"],
-               "-v", "%s:/private/s3cmd.cfg:ro" % settings["S3_CONFIG"],
-               settings["IMAGE_DEPLOYER"], "s3cmd", "-c", "/private/s3cmd.cfg", *args,
-               "--follow-symlinks", "--no-preserve", **kwargs)
+               "-v", "%s:/private/rclone.conf:ro" % settings["BUCKET_CONFIG"],
+               settings["IMAGE_DEPLOYER"], "rclone", "--config", "/private/rclone.conf",
+               "--checksum", "--copy-links", "--transfers", "32", "--checkers", "32",
+               "--stats-one-line", "--stats", "0", "-v", *args, **kwargs)
 
 
-def upload_s3(settings, what, paths, dry_run):
-    """Upload the given paths (relative to FILES_ROOT) to S3_TARGET, unless already there."""
-    log("S3: %s (%d)" % (what, len(paths)))
-    s3cmd(settings, "sync", "--files-from=-", *(["--dry-run"] if dry_run else []),
-          "/deploy/files/", settings["S3_TARGET"], input="\n".join(paths) + "\n", text=True)
+def upload_to_bucket(settings, what, paths, dry_run):
+    """Upload the given paths (relative to FILES_ROOT) to BUCKET_TARGET, unless already there."""
+    log("bucket: %s (%d)" % (what, len(paths)))
+    rclone(settings, "copy", "--files-from-raw", "-", *(["--dry-run"] if dry_run else []),
+           "/deploy/files", settings["BUCKET_TARGET"], input="\n".join(paths) + "\n", text=True)
 
 
-def sync_s3(settings, dry_run):
-    """Make S3_TARGET an exact copy of FILES_ROOT."""
-    log("S3: sync %s/ -> %s" % (settings["FILES_ROOT"], settings["S3_TARGET"]))
-    s3cmd(settings, "sync", "-v", "--delete-removed", *(["--dry-run"] if dry_run else []),
-          "/deploy/files/", settings["S3_TARGET"])
+def sync_bucket(settings, dry_run):
+    """Make BUCKET_TARGET an exact copy of FILES_ROOT."""
+    log("bucket: sync %s -> %s" % (settings["FILES_ROOT"], settings["BUCKET_TARGET"]))
+    rclone(settings, "sync", *(["--dry-run"] if dry_run else []), "/deploy/files", settings["BUCKET_TARGET"])
+
+
+def purge_cache(settings, paths, dry_run):
+    """Evict these paths (relative to FILES_ROOT) from Cloudflare's cache at PUBLIC_URL.
+    Purge by URL takes up to 100 URLs per request on the Free plan."""
+    urls = [settings["PUBLIC_URL"].rstrip("/") + "/" + path for path in paths]
+    log("Cloudflare: purging %d URLs under %s" % (len(urls), settings["PUBLIC_URL"]))
+    if dry_run:
+        for url in urls:
+            print("    " + url)
+        return
+
+    token = Path(settings["CLOUDFLARE_TOKEN"]).read_text().strip()
+    endpoint = "https://api.cloudflare.com/client/v4/zones/%s/purge_cache" % settings["CLOUDFLARE_ZONE_ID"]
+    for start in range(0, len(urls), 100):
+        request = urllib.request.Request(endpoint, method="POST",
+                                         data=json.dumps({"files": urls[start:start + 100]}).encode(),
+                                         headers={"Authorization": "Bearer " + token,
+                                                  "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                result = json.load(response)
+        except urllib.error.HTTPError as e:
+            result = {"success": False, "errors": e.read().decode(errors="replace")}
+        except urllib.error.URLError as e:
+            result = {"success": False, "errors": str(e.reason)}
+        if not result.get("success"):
+            common.die("the purge failed (everything else is published; publish again to retry): %s"
+                       % result.get("errors"))
 
 
 if __name__ == "__main__":

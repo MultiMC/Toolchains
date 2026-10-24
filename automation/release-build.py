@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build, package and verify a Launcher release for all platforms. Deploys nothing.
 
-    release-build.py [--config FILE] [--incremental [--clean]] [--build-number N] <out dir> [commit]
+    release-build.py [--config FILE] [--incremental [--clean]] [--build-number N] [--out DIR] [commit]
 
 --config      settings file overriding defaults.env (environment overrides both)
 --incremental reuse a persistent source checkout and per-platform build trees in
@@ -11,7 +11,9 @@
 --build-number
               use N instead of the next number from the build counter (BUILD_COUNTER),
               which is then left alone; for test builds
-out dir       new, empty directory for this release
+--out         put the release in DIR, which must be new or empty. Default:
+              RELEASES_DIR/<build number>, or <build number>.2, .3, ... if a test build
+              (--build-number) already used that number there
 commit        a commit on LAUNCHER_BRANCH (default: its current head)
 
 Steps: update the local Launcher mirror (state/launcher.git), check out the branch (as a
@@ -21,8 +23,15 @@ compat-check.py against BASELINES, write manifest.json.
 Exit status 0 only if every build and every compatibility check passed.
 
 The build number (Launcher_VERSION_BUILD) must keep increasing for the updater. Without
---build-number it is the next one from BUILD_COUNTER, taken (and recorded) before building,
-so a failed build uses up its number too. One release build runs at a time.
+--build-number it is the next one from BUILD_COUNTER, taken (and recorded) only once
+everything that can stop the build before it starts is fine: the commit is on the branch,
+the toolchain images and the baselines are there, the source is checked out (prepared in
+RELEASES_DIR/.preparing-<pid>, renamed to the build number after). A build that fails
+after that uses up its number. One release build runs at a time.
+
+Standard output gets exactly one line, the release directory, as soon as it exists (also
+when the build later fails); all logging goes to standard error. So:
+./deploy.py "$(./release-build.py)"
 """
 
 import argparse
@@ -30,6 +39,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -49,18 +59,47 @@ def main():
     parser.add_argument("--incremental", action="store_true")
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--build-number", type=int)
-    parser.add_argument("out", type=Path)
+    parser.add_argument("--out", type=Path)
     parser.add_argument("commit", nargs="?")
     args = parser.parse_args()
+    common.stop_on_sigterm()
     if args.clean and not args.incremental:
         parser.error("--clean only makes sense with --incremental")
 
     settings = common.load_settings(args.config)
-    out = args.out.resolve()
+    branch = settings["LAUNCHER_BRANCH"]
+    platforms = settings.platforms()
 
     with common.lock_release():
-        if out.exists() and any(out.iterdir()):
-            common.die("%s is not empty" % out)
+        # Everything that can stop the build before it starts happens before a build number
+        # is taken: the commit, the images, the baselines, the output directory, the checkout.
+        commit = resolve_commit(settings, branch, args.commit)
+        check_prerequisites(settings, platforms)
+        if args.out:
+            prepared = args.out.resolve()
+            if prepared.exists() and any(prepared.iterdir()):
+                common.die("%s is not empty" % prepared)
+        else:
+            # Left over by a run that was killed (-9): with the release lock held, none is in use.
+            for stale in Path(settings["RELEASES_DIR"]).glob(".preparing-*"):
+                shutil.rmtree(stale)
+            prepared = Path(settings["RELEASES_DIR"]) / (".preparing-%d" % os.getpid())
+        prepared.mkdir(parents=True, exist_ok=True)
+
+        if args.incremental:
+            work = common.STATE / "work"
+            work.mkdir(exist_ok=True)
+            src = work / "src"
+            settings["CLEAN"] = "1" if args.clean else "0"
+        else:
+            src = prepared / "src"
+            settings["CLEAN"] = "1"
+        try:
+            checkout(branch, commit, src)
+        except BaseException:
+            if not args.out:
+                shutil.rmtree(prepared)
+            raise
 
         if args.build_number is None:
             build_number = common.next_build_number(settings)
@@ -68,20 +107,19 @@ def main():
         else:
             build_number = args.build_number
             log("build number %d (given; the counter is left alone)" % build_number)
-        out.mkdir(parents=True, exist_ok=True)
 
-        if args.incremental:
-            work = common.STATE / "work"
-            work.mkdir(exist_ok=True)
-            src, build_root = work / "src", work / "build"
-            settings["CLEAN"] = "1" if args.clean else "0"
-        else:
-            src, build_root = out / "src", out / "build"
-            settings["CLEAN"] = "1"
+        out = prepared
+        if not args.out:
+            out = release_dir(settings, build_number)
+            prepared.rename(out)
+            if not args.incremental:
+                src = out / "src"
+        log("release directory %s" % out)
+        # The only thing on standard output (logging goes to standard error), so callers
+        # can use it: ./deploy.py "$(./release-build.py)"
+        print(out, flush=True)
+        build_root = common.STATE / "work" / "build" if args.incremental else out / "build"
 
-        branch = settings["LAUNCHER_BRANCH"]
-        commit = checkout(settings, branch, args.commit, src)
-        platforms = settings.platforms()
         build(settings, platforms, src, build_root, out, build_number)
         package(platforms, branch, build_root, out)
         passed = gate(settings, platforms, build_root, out)
@@ -94,27 +132,63 @@ def main():
     log("releasable: build %d of %s, see %s" % (build_number, commit, out / "manifest.json"))
 
 
-def checkout(settings, branch, commit, src):
-    """Update the mirror and check out `branch` at `commit` in `src`; return the commit."""
-    mirror = common.STATE / "launcher.git"
-    if not mirror.is_dir():
-        log("cloning mirror of %s" % settings["LAUNCHER_REPO"])
-        common.run("git", "clone", "-q", "--mirror", settings["LAUNCHER_REPO"], mirror)
-    log("updating mirror")
-    common.run("git", "-C", mirror, "fetch", "-q", "--prune", "origin")
-    commit = common.output("git", "-C", mirror, "rev-parse", "--verify",
-                           "%s^{commit}" % (commit or "refs/heads/" + branch))
-    if subprocess.run(["git", "-C", mirror, "merge-base", "--is-ancestor", commit, "refs/heads/" + branch]).returncode:
-        common.die("%s is not on %s" % (commit, branch))
+def release_dir(settings, build_number):
+    """RELEASES_DIR/<build number>; a test build reusing a number gets <number>.2, .3, ..."""
+    releases = Path(settings["RELEASES_DIR"])
+    candidate, n = releases / str(build_number), 1
+    while candidate.exists():
+        n += 1
+        candidate = releases / ("%d.%d" % (build_number, n))
+    return candidate
 
+
+def mirror(settings):
+    """The local mirror of LAUNCHER_REPO (state/launcher.git), cloned if needed and updated."""
+    path = common.STATE / "launcher.git"
+    if not path.is_dir():
+        log("cloning mirror of %s" % settings["LAUNCHER_REPO"])
+        common.run("git", "clone", "-q", "--mirror", settings["LAUNCHER_REPO"], path)
+    log("updating mirror")
+    common.run("git", "-C", path, "fetch", "-q", "--prune", "origin")
+    return path
+
+
+def resolve_commit(settings, branch, commit):
+    """The full commit for `commit` (default: the head of `branch`); it must be on `branch`."""
+    path = mirror(settings)
+    resolved = subprocess.run(["git", "-C", path, "rev-parse", "--verify", "-q",
+                               "%s^{commit}" % (commit or "refs/heads/" + branch)],
+                              stdout=subprocess.PIPE, text=True).stdout.strip()
+    if not resolved:
+        common.die("no commit %s in %s" % (commit, settings["LAUNCHER_REPO"]))
+    if subprocess.run(["git", "-C", path, "merge-base", "--is-ancestor", resolved, "refs/heads/" + branch]).returncode:
+        common.die("%s is not on %s" % (resolved, branch))
+    return resolved
+
+
+def check_prerequisites(settings, platforms):
+    """The toolchain images and the baselines the compatibility gate compares against."""
+    for p in platforms:
+        image = settings[p.image_setting]
+        if subprocess.run(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL).returncode:
+            common.die("toolchain image %s (%s) isn't there; build or load it (../containers/)" % (image, p.name))
+        baseline = Path(settings["BASELINES"]) / p.package("develop")
+        if not baseline.is_file():
+            common.die("baseline %s is missing" % baseline)
+
+
+def checkout(branch, commit, src):
+    """Check out `branch` at `commit` (from the mirror) in `src`, with submodules."""
+    path = common.STATE / "launcher.git"
     log("checking out %s at %s" % (branch, commit))
     git = ["git", "-C", src]
     if not (src / ".git").is_dir():
-        common.run("git", "clone", "-q", "--no-hardlinks", "-b", branch, mirror, src)
+        common.run("git", "clone", "-q", "--no-hardlinks", "-b", branch, path, src)
     else:
         # Persistent checkout: only files that actually change get touched (and new mtimes).
         # Its origin is the mirror, wherever this directory is now.
-        common.run(*git, "remote", "set-url", "origin", mirror)
+        common.run(*git, "remote", "set-url", "origin", path)
         common.run(*git, "fetch", "-q", "origin")
         common.run(*git, "checkout", "-q", "-B", branch, commit)
     common.run(*git, "reset", "-q", "--hard", commit)
@@ -122,7 +196,6 @@ def checkout(settings, branch, commit, src):
     common.run(*git, "submodule", "-q", "sync", "--recursive")
     common.run(*git, "submodule", "-q", "update", "--init", "--recursive")
     common.run(*git, "submodule", "-q", "foreach", "--recursive", "git clean -q -ffdx")
-    return commit
 
 
 def build(settings, platforms, src, build_root, out, build_number):
@@ -138,12 +211,17 @@ def build(settings, platforms, src, build_root, out, build_number):
             with open(out / ("build-%s.log" % p.name), "w") as logfile:
                 running[p.name] = subprocess.Popen(command, stdout=logfile, stderr=subprocess.STDOUT)
 
-        for name, process in running.items():
-            if process.wait() == 0:
-                log("  %s: built" % name)
-            else:
-                log("  %s: BUILD FAILED (see build-%s.log)" % (name, name))
-                failed.append(name)
+        try:
+            for name, process in running.items():
+                if process.wait() == 0:
+                    log("  %s: built" % name)
+                else:
+                    log("  %s: BUILD FAILED (see build-%s.log)" % (name, name))
+                    failed.append(name)
+        except BaseException:
+            log("stopping the platform builds")
+            common.stop(running.values())
+            raise
     if failed:
         common.die("build failed: %s" % " ".join(failed))
 
