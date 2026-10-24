@@ -242,8 +242,13 @@ the downloads.
    `channels.json`) aren't purged by this; purge them in the dashboard.
 
 Without the bucket or purge settings `publish.py` refuses to start; `--no-bucket` and
-`--no-purge` skip them deliberately. Production's bucket (R2, replacing Amazon S3) doesn't
-exist yet, so `BUCKET_TARGET` is empty in `defaults.env`. Publishing a release again is a
+`--no-purge` skip them deliberately. Production's bucket is the R2 bucket `multimc-files`
+(served at `files-r2.multimc.org`), replacing Amazon S3; files2's is `multimc-files2`
+(`files2-r2.multimc.org`). Both were seeded on 2026-10-24 (files2: 3.2 GB in 98 s;
+production: synced from the deth001 tree it had held files2's data before). Until cutover
+TeamCity keeps releasing to deth001 and S3, so the production bucket falls behind; re-sync
+it then (`rclone sync` of `state/files` after `files-pull.py`). The translations and Patreon
+jobs don't write to it yet either. Publishing a release again is a
 no-op. Only this release's files go to the bucket: the translations and Patreon jobs write
 to the live tree too (`translations/`, `patrons.txt`) and upload what they change
 themselves; `notifications.json` is edited by hand. (TeamCity's deploy instead synced the
@@ -324,8 +329,8 @@ Seeded 2026-10-23 (as R2 only) from a copy of the live tree, with `update/config
 and every `update/<platform>/channels.json` pointed at files2. The Launcher takes the channel
 URLs from `channels.json`, so without the second part a files2 build checked
 files.multimc.org for updates. Build numbers there started at 5000, clear of TeamCity's
-(~4280). The key is in `BUCKET_CONFIG` (an R2 token for that bucket). The first upload
-(3.2 GB, still with s3cmd) took 40 min.
+(~4280). Its bucket is `multimc-files2` since 2026-10-24 (before that, files2 used
+`multimc-files`, now production's). The R2 key in `BUCKET_CONFIG` covers both buckets.
 
 Verified 2026-10-23: a Launcher from files2 build 5000 (lin64) offered build 5001 after it
 was published, and updated itself to it. Then Launchers from build 5001 on Windows 11,
