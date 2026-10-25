@@ -307,6 +307,9 @@ def pull_files(settings, dry_run=False):
         else:
             run("btrfs", "subvolume", "create", root, stdout=subprocess.DEVNULL)
         run("rsync", "-a", "--delete", "--info=stats1", settings["FILES_ORIGIN"], str(root) + "/")
+        for entry in read_pending(settings):
+            logger("files")("the pull discarded the unpublished deploy of %s" % Path(entry["release"]).name)
+        remove_pending(settings)
 
 
 # Snapshots: FILES_ROOT is a btrfs subvolume; read-only snapshots of it are kept next to it
@@ -386,10 +389,57 @@ def tree_changes(before, after):
     return changes
 
 
-def write_publish_list(release, snapshot, changes):
+def write_publish_list(settings, release, snapshot, changes):
+    """Write <release>/publish.json; a release with changes is pending until it's published."""
     with open(Path(release) / "publish.json", "w") as f:
         json.dump({"snapshot": str(snapshot), "changes": changes}, f, indent=2, sort_keys=True)
         f.write("\n")
+    if changes:
+        write_pending(settings, read_pending(settings) + [{"release": str(release), "snapshot": Path(snapshot).name}])
+
+
+# Pending deploys: FILES_ROOT.pending lists the releases deployed into the tree but not yet
+# published. Each publish list only has what its own deploy changed, so a deploy that was
+# never published would be skipped silently by the next one: while one is pending, the next
+# deploy is refused. publish.py removes its release; files-pull.py (which overwrites the
+# tree) clears the list; files-snapshots.py restore removes what the restore undid.
+
+def pending_path(settings):
+    return Path(settings["FILES_ROOT"] + ".pending")
+
+
+def read_pending(settings):
+    path = pending_path(settings)
+    return json.loads(path.read_text()) if path.is_file() else []
+
+
+def write_pending(settings, entries):
+    path = pending_path(settings)
+    new = Path(str(path) + ".new")
+    new.write_text(json.dumps(entries, indent=2) + "\n")
+    os.replace(new, path)
+
+
+def check_no_pending(settings):
+    for entry in read_pending(settings):
+        die("%s was deployed but not published; publish it (publish.py %s) or undo it "
+            "(files-snapshots.py restore %s) first" % (Path(entry["release"]).name, entry["release"], entry["snapshot"]))
+
+
+def remove_pending(settings, release=None, from_snapshot=None):
+    """Drop a release from the pending list, or (from_snapshot) every deploy whose snapshot was
+    taken at or after that one, or (neither) all of them."""
+    keep = []
+    for entry in read_pending(settings):
+        if release is not None:
+            gone = entry["release"] == str(release)
+        elif from_snapshot is not None:
+            gone = entry["snapshot"] >= from_snapshot
+        else:
+            gone = True
+        if not gone:
+            keep.append(entry)
+    write_pending(settings, keep)
 
 
 def read_publish_list(release):

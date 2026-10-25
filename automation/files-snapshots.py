@@ -81,6 +81,8 @@ def restore(settings, snapshot):
     # --checksum: compare contents, not just size and time (restores are rare, reading is cheap)
     common.run("rsync", "-a", "--delete", "--checksum", "--info=stats1",
                str(snapshot) + "/", settings["FILES_ROOT"] + "/")
+    # Deploys made from this snapshot on are undone, so they aren't pending any more.
+    common.remove_pending(settings, from_snapshot=snapshot.name)
 
 
 def remove(snapshot):

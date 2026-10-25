@@ -114,6 +114,8 @@ def main():
         if purge:
             purge_cache(settings, sorted(changes) + links, args.dry_run)
 
+    if not args.dry_run:
+        common.remove_pending(settings, release=release)
     skipped = [name for name, done in (("bucket", bucket), ("purge", purge)) if not done]
     log("done" + (", skipped: " + " ".join(skipped) if skipped else ""))
 

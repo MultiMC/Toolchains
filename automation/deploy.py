@@ -81,6 +81,7 @@ def deploy_launcher(settings, release, manifest, root):
             if build <= last:
                 common.die("%s/%s already has build %d; %d is not newer" % (p.name, branch, last, build))
 
+        common.check_no_pending(settings)
         snapshot = common.snapshot_files(settings, "before-deploy-%d" % build)
         log("snapshot of the tree as it was: %s" % snapshot.name)
 
@@ -99,7 +100,7 @@ def deploy_launcher(settings, release, manifest, root):
                 common.run(*repoman, "push-file", "downloads", "/packages/" + package)
 
         changes = common.tree_changes(snapshot, root)
-        common.write_publish_list(release, snapshot, changes)
+        common.write_publish_list(settings, release, snapshot, changes)
 
     log("deployed to %s (not published); %d files to publish, see %s"
         % (root, len(changes), release / "publish.json"))
@@ -121,6 +122,7 @@ def deploy_translations(settings, release, manifest, root):
         if missing:
             common.die("the new index names files that are neither in the release nor in the tree: %s"
                        % ", ".join(missing))
+        common.check_no_pending(settings)
         snapshot = common.snapshot_files(settings, "before-translations-%s" % manifest["commit"][:10])
         log("snapshot of the tree as it was: %s" % snapshot.name)
 
@@ -133,7 +135,7 @@ def deploy_translations(settings, release, manifest, root):
         log("%d files copied, %d removed" % (len(manifest["files"]), len(removed)))
 
         changes = common.tree_changes(snapshot, root)
-        common.write_publish_list(release, snapshot, changes)
+        common.write_publish_list(settings, release, snapshot, changes)
 
     log("deployed to %s (not published); %d files to publish, see %s"
         % (root, len(changes), release / "publish.json"))
@@ -142,11 +144,12 @@ def deploy_translations(settings, release, manifest, root):
 
 def deploy_patrons(settings, release, root):
     with common.lock_files(settings):
+        common.check_no_pending(settings)
         snapshot = common.snapshot_files(settings, "before-patrons")
         log("snapshot of the tree as it was: %s" % snapshot.name)
         shutil.copyfile(release / "patrons.txt", root / "patrons.txt")
         changes = common.tree_changes(snapshot, root)
-        common.write_publish_list(release, snapshot, changes)
+        common.write_publish_list(settings, release, snapshot, changes)
 
     log("deployed to %s (not published); %d files to publish, see %s"
         % (root, len(changes), release / "publish.json"))

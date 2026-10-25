@@ -231,6 +231,15 @@ it added, changed or removed, with its SHA-256 before and after, to
 snapshot keeps inode numbers, so only files whose inode, size or time differ are hashed;
 a deploy takes a few seconds.) The tree is locked while it runs.
 
+**Pending deploys:** each publish list only has what its own deploy changed, so a deploy
+that was never published would otherwise be skipped silently by the next one (it
+happened on 2026-10-25: a Patreon list deployed but not published, then the same list
+again, whose deploy changed nothing). So `FILES_ROOT.pending` lists the releases deployed
+but not published, and while one is listed the next deploy is refused, naming it: publish
+it, or undo it with `files-snapshots.py restore` of its snapshot. `publish.py` removes its
+release when done; a restore removes the deploys it undid; `files-pull.py` (which
+overwrites the tree) clears the list.
+
 **Launcher builds:** does what TeamCity's deploy steps did on deth001, with the same
 repoman (`IMAGE_DEPLOYER`, `../containers/deployer`), as the calling user, without
 network: for each platform `repoman -c update push <platform> <branch> <build> <version>
