@@ -313,6 +313,60 @@ def channel_versions(index):
     return [{**v, "Id": str(v["Id"])} for v in json.loads(index)["Versions"]]
 
 
+# Publish lists: a deploy compares the tree with the snapshot it took before changing it and
+# writes what changed to <release>/publish.json, as {path: {"old": sha256, "new": sha256}}
+# (null: the file didn't exist / doesn't any more). publish.py works only from that list.
+
+def sha256_file(path):
+    import hashlib
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def regular_files(root):
+    """{relative path: os.stat_result} for the regular files (not symlinks) under root."""
+    found = {}
+    for directory, _, names in os.walk(root):
+        for name in names:
+            path = os.path.join(directory, name)
+            if not os.path.islink(path):
+                found[os.path.relpath(path, root)] = os.stat(path)
+    return found
+
+
+def tree_changes(before, after):
+    """The files that differ between two trees (a snapshot and the tree it was taken of).
+    A snapshot keeps inode numbers, so a file with the same inode, size and modification
+    time is unchanged; only the others are hashed."""
+    old, new = regular_files(before), regular_files(after)
+    changes = {}
+    for path in sorted(set(old) | set(new)):
+        a, b = old.get(path), new.get(path)
+        if a and b and (a.st_ino, a.st_size, a.st_mtime_ns) == (b.st_ino, b.st_size, b.st_mtime_ns):
+            continue
+        old_hash = sha256_file(os.path.join(before, path)) if a else None
+        new_hash = sha256_file(os.path.join(after, path)) if b else None
+        if old_hash != new_hash:
+            changes[path] = {"old": old_hash, "new": new_hash}
+    return changes
+
+
+def write_publish_list(release, snapshot, changes):
+    with open(Path(release) / "publish.json", "w") as f:
+        json.dump({"snapshot": str(snapshot), "changes": changes}, f, indent=2, sort_keys=True)
+        f.write("\n")
+
+
+def read_publish_list(release):
+    path = Path(release) / "publish.json"
+    if not path.is_file():
+        die("%s has no publish.json (run deploy.py)" % release)
+    return json.loads(path.read_text())["changes"]
+
+
 # --- releases ----------------------------------------------------------------------------
 
 def read_release(release_dir):

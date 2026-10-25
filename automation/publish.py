@@ -3,40 +3,40 @@
 
     publish.py [--config FILE] [--dry-run] [--no-bucket] [--no-purge] <release dir>
 
-What a release adds to the tree, in the order it is published, so clients never see a
-version whose files aren't there yet: the version's store files (files/), the version
-files, the channel indexes, the download packages.
+Works only from the release's publish.json, which deploy.py wrote: every file the deploy
+added, changed or removed in the tree, with its SHA-256 before and after. Any kind of
+release (Launcher builds, translations) is published the same way.
 
-With FILES_ORIGIN set (a live tree other jobs also write to, like deth001's):
-1. Checks that each channel's index.json on the live tree is the local one without this
-   release (or already includes it), so a version deployed elsewhere meanwhile isn't lost.
-2. Copies those files to the live tree (store files only if missing). Each file is
-   replaced atomically.
-3. Uploads the same files to the bucket (BUCKET_TARGET, an rclone remote:path, with the
-   rclone config BUCKET_CONFIG; outside this repo), plus the download symlinks pointing at
-   the packages (the bucket has copies of them). Only this release's files: the
-   translations and Patreon jobs upload what they change themselves.
-
-With FILES_ORIGIN empty, FILES_ROOT is the only copy: the whole tree is synced to the
-bucket, deleting what the tree no longer has.
+1. Checks the local tree: every listed file must still be as the deploy left it (another
+   deploy since then would make this release's list wrong).
+2. With FILES_ORIGIN set (a live tree other jobs also write to, like deth001's): checks
+   that every listed file on the live tree is either its "before" or its "after" version,
+   so nothing changed there that this release doesn't know about (and publishing again,
+   or after an interruption, still works). Then copies the files there, as
+   FILES_ORIGIN_OWNER with mode FILES_ORIGIN_MODE, each replaced atomically, in an order
+   that never lets clients see an index whose files aren't there yet: store files,
+   translation files, version files, indexes, downloads, anything else; removals last.
+3. The bucket (BUCKET_TARGET, an rclone remote:path; the rclone config with its key is
+   BUCKET_CONFIG, outside this repo) gets the same changes, plus the download symlinks
+   pointing at changed packages (the bucket has copies of them). With FILES_ORIGIN empty,
+   the whole tree is synced to the bucket instead.
+4. Purges every changed or removed file (and those symlinks) from Cloudflare's cache at
+   PUBLIC_URL. Needs CLOUDFLARE_ZONE_ID and an API token with Zone / Cache Purge
+   permission in the file CLOUDFLARE_TOKEN (outside this repo). If it fails, publishing
+   again retries it.
 
 rclone transfers and compares many files at once (32); it compares by size and MD5, so
-objects uploaded earlier (also by s3cmd) aren't uploaded again.
+objects uploaded earlier aren't uploaded again.
 
-Last, every file of the release (and the download symlinks) is purged from Cloudflare's
-cache at PUBLIC_URL, so the overwritten indexes and downloads are served fresh. The list
-doesn't depend on what was transferred, so if the purge fails, publishing again retries
-it. Needs CLOUDFLARE_ZONE_ID and an API token with Zone / Cache Purge permission in the
-file CLOUDFLARE_TOKEN (outside this repo); without them nothing is published, unless
---no-purge.
-
---dry-run only reads: shows what would be copied, uploaded and purged.
+--dry-run only reads: shows what would be copied, removed, uploaded and purged.
 --no-bucket skips the bucket, --no-purge the purge (otherwise both are required).
 """
 
 import argparse
 import json
 import os
+import re
+import shlex
 import subprocess
 import urllib.error
 import urllib.request
@@ -45,6 +45,18 @@ from pathlib import Path
 import common
 
 log = common.logger("publish")
+
+TRANSLATION_INDEXES = ("translations/index_v2.json", "translations/index")
+
+# Publishing order: whatever an index points at goes before the index.
+STAGES = [
+    ("store files", lambda path: path.startswith("files/")),
+    ("translation files", lambda path: path.startswith("translations/") and path not in TRANSLATION_INDEXES),
+    ("version files", lambda path: re.fullmatch(r"update/[^/]+/[^/]+/\d+\.json", path)),
+    ("indexes", lambda path: path.startswith("update/") or path in TRANSLATION_INDEXES),
+    ("downloads", lambda path: path.startswith("downloads/")),
+    ("other files", lambda path: True),
+]
 
 
 def main():
@@ -68,83 +80,115 @@ def main():
         common.die("can't purge Cloudflare's cache: PUBLIC_URL, CLOUDFLARE_ZONE_ID and the token "
                    "file CLOUDFLARE_TOKEN (%s) are needed (or use --no-purge)" % settings["CLOUDFLARE_TOKEN"])
 
-    manifest = common.read_release(args.release.resolve())
-    branch, build = manifest["branch"], str(manifest["build_number"])
-    platforms = [common.platform(name) for name in manifest["platforms"]]
+    release = args.release.resolve()
+    common.read_release(release)
+    changes = common.read_publish_list(release)
     origin = settings["FILES_ORIGIN"]
     root = Path(settings["FILES_ROOT"])
-    log("%srelease %s build %s: %s -> %s" % ("(dry run) " if args.dry_run else "", branch, build,
-                                           " ".join(p.name for p in platforms), origin or settings["BUCKET_TARGET"]))
+    log("%s%s: %d files -> %s" % ("(dry run) " if args.dry_run else "", release.name, len(changes),
+                                  origin or settings["BUCKET_TARGET"]))
 
     with common.lock_files(settings):
-        for p in platforms:
-            if not (root / "update" / p.name / branch / (build + ".json")).is_file():
-                common.die("update/%s/%s/%s.json isn't in %s (run deploy.py)" % (p.name, branch, build, root))
+        check_local(root, changes)
+        stages = in_stages(changes)
+        removed = sorted(path for path, change in changes.items() if change["new"] is None)
+        links = links_to(root / "downloads", [p for _, paths in stages for p in paths])
 
-        groups = release_files(root, platforms, branch, build)
         if origin:
-            check_live_indexes(settings, platforms, branch, build)
-            for what, paths in groups:
-                copy(settings, what, paths, args.dry_run, *(["--ignore-existing"] if what == "store files" else []))
+            check_live(settings, changes)
+            for what, paths in stages:
+                copy(settings, what, paths, args.dry_run)
+            remove_live(settings, removed, args.dry_run)
 
         if bucket and origin:
-            for what, paths in groups:
-                upload_to_bucket(settings, what, paths, args.dry_run)
+            for what, paths in stages:
+                upload_to_bucket(settings, what, paths + (links if what == "downloads" else []), args.dry_run)
+            remove_from_bucket(settings, removed, args.dry_run)
         elif bucket:
             sync_bucket(settings, args.dry_run)
 
         if purge:
-            purge_cache(settings, [path for _, paths in groups for path in paths], args.dry_run)
+            purge_cache(settings, sorted(changes) + links, args.dry_run)
 
     skipped = [name for name, done in (("bucket", bucket), ("purge", purge)) if not done]
     log("done" + (", skipped: " + " ".join(skipped) if skipped else ""))
 
 
-def release_files(root, platforms, branch, build):
-    """The files the release added, relative to FILES_ROOT, as (what, paths) in publishing order."""
-    store, versions, indexes, downloads = set(), [], [], []
-    for p in platforms:
-        channel = "update/%s/%s" % (p.name, branch)
-        version = json.loads((root / channel / (build + ".json")).read_text())
-        store |= {"files/" + os.path.basename(s["Url"]) for f in version["Files"] for s in f["Sources"]}
-        versions.append("%s/%s.json" % (channel, build))
-        indexes.append(channel + "/index.json")
-        downloads.append("downloads/" + p.package(branch))
-    downloads += links_to(root / "downloads", downloads)
-    return [("store files", sorted(store)), ("version files", versions),
-            ("channel indexes", indexes), ("downloads", downloads)]
+def in_stages(changes):
+    """The added and changed files, as [(stage, paths)] in publishing order."""
+    stages = [(name, []) for name, _ in STAGES]
+    for path, change in sorted(changes.items()):
+        if change["new"] is not None:
+            index = next(i for i, (_, matches) in enumerate(STAGES) if matches(path))
+            stages[index][1].append(path)
+    return [(name, paths) for name, paths in stages if paths]
 
 
 def links_to(directory, paths):
     """Symlinks in `directory` that point at one of `paths` (relative to the tree). The bucket and
     Cloudflare have copies of what they point at; the live tree has the links themselves."""
-    names = {os.path.basename(p) for p in paths}
+    names = {os.path.basename(p) for p in paths if p.startswith(directory.name + "/")}
     return sorted("%s/%s" % (directory.name, link.name) for link in directory.iterdir()
                   if link.is_symlink() and os.path.basename(os.readlink(link)) in names)
 
 
-def read_origin(settings, path):
-    """A file from the live tree; FILES_ORIGIN is host:dir or a local directory."""
+def check_local(root, changes):
+    """Every listed file must still be as the deploy left it."""
+    for path, change in sorted(changes.items()):
+        full = root / path
+        now = common.sha256_file(full) if full.is_file() else None
+        if now != change["new"]:
+            common.die("%s changed in the local tree since this release was deployed (another deploy?); "
+                       "publish that one instead, or restore and deploy again" % path)
+
+
+def live_hashes(settings, paths):
+    """{path: sha256 or None} for these paths in the live tree (FILES_ORIGIN: host:dir or a dir)."""
+    origin = settings["FILES_ORIGIN"]
+    if ":" not in origin:
+        return {path: common.sha256_file(Path(origin) / path) if (Path(origin) / path).is_file() else None
+                for path in paths}
+
+    host, directory = origin.split(":", 1)
+    script = ('cd %s && while IFS= read -r f; do if [ -f "$f" ]; then sha256sum -- "$f"; '
+              'else printf -- "- %%s\\n" "$f"; fi; done' % shlex.quote(directory))
+    result = common.run("ssh", host, script, input="\n".join(paths) + "\n", stdout=subprocess.PIPE, text=True)
+    hashes = {}
+    for line in result.stdout.splitlines():
+        digest, path = line.split(None, 1)
+        hashes[path.strip()] = None if digest == "-" else digest
+    return hashes
+
+
+def check_live(settings, changes):
+    """Every listed file on the live tree must be its before or its after version."""
+    live = live_hashes(settings, sorted(changes))
+    unexpected = [path for path, change in sorted(changes.items())
+                  if live.get(path, "missing from the answer") not in (change["old"], change["new"])]
+    if unexpected:
+        common.die("the live tree changed in ways this release doesn't know about (another deploy?): %s; "
+                   "run files-pull.py and deploy again" % ", ".join(unexpected[:5]))
+    done = sum(1 for path, change in changes.items() if live[path] == change["new"])
+    if done:
+        log("  %d of %d files are already published" % (done, len(changes)))
+
+
+def remove_live(settings, paths, dry_run):
+    if not paths:
+        return
+    log("live tree: removing %d files" % len(paths))
+    if dry_run:
+        for path in paths:
+            print("    remove " + path)
+        return
     origin = settings["FILES_ORIGIN"]
     if ":" in origin:
         host, directory = origin.split(":", 1)
-        return common.output("ssh", host, "cat '%s/%s'" % (directory.rstrip("/"), path))
-
-    return (Path(origin) / path).read_text()
-
-
-def check_live_indexes(settings, platforms, branch, build):
-    """Each live index must be the local one minus this build, or already include it."""
-    root = Path(settings["FILES_ROOT"])
-    for p in platforms:
-        channel = "update/%s/%s" % (p.name, branch)
-        local = common.channel_versions((root / channel / "index.json").read_text())
-        live = common.channel_versions(read_origin(settings, channel + "/index.json"))
-        if local == live and local[-1]["Id"] == build:
-            log("  %s: build %s is already in the live index" % (p.name, build))
-        elif not (local[:-1] == live and local[-1]["Id"] == build):
-            common.die("%s: the live index.json isn't the local one minus build %s (deployed elsewhere "
-                       "meanwhile?); run files-pull.py and deploy.py again" % (p.name, build))
+        common.run("ssh", host, "cd %s && xargs -d '\\n' rm -f --" % shlex.quote(directory),
+                   input="\n".join(paths) + "\n", text=True)
+    else:
+        for path in paths:
+            (Path(origin) / path).unlink(missing_ok=True)
 
 
 def copy(settings, what, paths, dry_run, *options):
@@ -175,6 +219,14 @@ def upload_to_bucket(settings, what, paths, dry_run):
     log("bucket: %s (%d)" % (what, len(paths)))
     rclone(settings, "copy", "--files-from-raw", "-", *(["--dry-run"] if dry_run else []),
            "/deploy/files", settings["BUCKET_TARGET"], input="\n".join(paths) + "\n", text=True)
+
+
+def remove_from_bucket(settings, paths, dry_run):
+    if not paths:
+        return
+    log("bucket: removing %d files" % len(paths))
+    rclone(settings, "delete", "--files-from-raw", "-", *(["--dry-run"] if dry_run else []),
+           settings["BUCKET_TARGET"], input="\n".join(paths) + "\n", text=True)
 
 
 def sync_bucket(settings, dry_run):

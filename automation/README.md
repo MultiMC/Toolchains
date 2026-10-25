@@ -8,9 +8,10 @@ the files tree, publish to the live tree and a bucket. TeamCity still does the r
 | `release-build.py` | Builds a release of all platforms: checkout, parallel builds, packaging, compatibility gate, manifest |
 | `run-build.py` | Builds one platform in its toolchain container. The same for every platform |
 | `build/linux.sh`, `build/win32.sh`, `build/osx64.sh` | The build steps, run inside the containers (mounted at `/build`) |
-| `compat-check.py` | The compatibility gate: compares a build with the shipped one |
-| `deploy.py` | Deploys a release into the local files tree |
-| `publish.py` | Publishes a deployed release to the live tree and the bucket, purges Cloudflare's cache |
+| `compat-check.py` | The compatibility gate: checks a build against its description (`expectations/`) |
+| `translations-build.py` | Builds a translations release (the Translations repo's `release.py`, in its image) |
+| `deploy.py` | Deploys a release (Launcher build or translations) into the local files tree, writes its publish list |
+| `publish.py` | Publishes a release's publish list to the live tree and the bucket, purges Cloudflare's cache |
 | `files-pull.py` | Makes the local files tree a copy of the live one |
 | `hopper.py` | hopper: watches the branch and moves each new commit through build, deploy and publish; later also tags and the UI backend |
 | `files-snapshots.py` | Lists, takes, restores and removes snapshots of the local files tree |
@@ -217,49 +218,65 @@ Needs `objdump` and `llvm-otool` on the host.
     ./deploy.py <release dir>                           # deploy a release into FILES_ROOT
     ./publish.py [--dry-run] [--no-bucket] [--no-purge] <release dir>    # publish it
 
+Two kinds of release go through it: Launcher builds (`release-build.py`) and translations
+(`translations-build.py`).
+
 ### `deploy.py`
 
-Does what TeamCity's deploy steps did on deth001, with the same repoman (`IMAGE_DEPLOYER`,
-`../containers/deployer`), as the calling user, without network: for each platform
-`repoman -c update push <platform> <branch> <build> <version> <bundle>/` (adds
-`update/<platform>/<branch>/<build>.json`, adds it to the channel's `index.json`, copies
-files the store doesn't have yet into `files/<md5>-<name>`) and
-`repoman push-file downloads <package>`. The tree is locked while it runs.
+Snapshots the tree, changes it, then compares it with the snapshot and writes every file
+it added, changed or removed, with its SHA-256 before and after, to
+`<release>/publish.json`: the publish list, the only thing `publish.py` works from. (A
+snapshot keeps inode numbers, so only files whose inode, size or time differ are hashed;
+a deploy takes a few seconds.) The tree is locked while it runs.
 
-It refuses a release that isn't releasable, one built for another system (the manifest's
-`UPDATER_BASE` must be the tree's `update/config.json` `base_url`), and one whose build
-number isn't higher than every version already in the channel.
+**Launcher builds:** does what TeamCity's deploy steps did on deth001, with the same
+repoman (`IMAGE_DEPLOYER`, `../containers/deployer`), as the calling user, without
+network: for each platform `repoman -c update push <platform> <branch> <build> <version>
+<bundle>/` (adds `update/<platform>/<branch>/<build>.json`, adds it to the channel's
+`index.json`, copies files the store doesn't have yet into `files/<md5>-<name>`) and
+`repoman push-file downloads <package>`. Refuses a build made for another system (the
+manifest's `UPDATER_BASE` must be the tree's `update/config.json` `base_url`) and one whose
+build number isn't higher than every version already in the channel. A build's list has
+only what really changed: on files2, build 5013 had 26 files (14 new store files, 4
+version files, 4 indexes, 4 downloads); before the publish list, every publish handled all
+the release's files (~100 URLs to purge).
 
 repoman prints `Failed to load channel "main"` for every platform: `channels.json` lists a
 `main` channel that has no directories. Harmless; TeamCity's deploys did the same.
 
-Verified 2026-10-23: build 9999 of 2a684511 deployed into a fresh copy: four version files
-with the same structure, keys, URLs and permissions as TeamCity's last ones (4275-4278), the
-indexes extended, 41 new store files (59 MB), the four downloads replaced. Differences: win32
-permissions are 0644/0755 instead of the VM's 0666/0777, and win32 gets the right version
-name (TeamCity's VM builds were named `0.0.0`).
+**Translations:** `translations/` becomes the release's files, plus the files of languages
+that kept their previous release (still named in the new index); everything else in there
+is removed, so nothing piles up.
+
+Verified 2026-10-23: Launcher build 9999 of 2a684511 deployed into a fresh copy: four
+version files with the same structure, keys, URLs and permissions as TeamCity's last ones
+(4275-4278), the indexes extended, 41 new store files (59 MB), the four downloads replaced.
+Differences: win32 permissions are 0644/0755 instead of the VM's 0666/0777, and win32 gets
+the right version name (TeamCity's VM builds were named `0.0.0`).
 
 ### `publish.py`
 
-Publishes what `deploy.py` added, in an order that never lets clients see a version whose
-files aren't there yet: the version's store files, the version files, the channel indexes,
-the downloads.
+Works only from the release's `publish.json`:
 
-1. Checks that each live `index.json` is the local one minus this build. If something else
-   deployed meanwhile, it stops (pull and deploy again).
-2. Copies those files to the live tree (`FILES_ORIGIN`, as `FILES_ORIGIN_OWNER`, mode
-   `FILES_ORIGIN_MODE`; store files only if missing). Each file is replaced atomically.
-3. Uploads the same files to the bucket (`BUCKET_TARGET`, an rclone `remote:path`; the
-   rclone config with its key is `BUCKET_CONFIG`, outside this repo), plus download
-   symlinks pointing at the packages: the bucket has copies of those
+1. **The local tree** must still be as the deploy left it (every listed file has its
+   "after" hash); another deploy since then stops it.
+2. **The live tree** (`FILES_ORIGIN`): every listed file must be either its "before" or its
+   "after" version. Anything else means someone else changed it, and it stops (pull and
+   deploy again). Accepting "after" keeps publishing again, or after an interruption,
+   working: already published files are reported and skipped.
+3. **Copies** the files there (as `FILES_ORIGIN_OWNER`, mode `FILES_ORIGIN_MODE`, each
+   replaced atomically) in an order that never lets clients see an index whose files
+   aren't there yet: store files, translation files, version files, indexes, downloads,
+   anything else; removals last.
+4. **The bucket** (`BUCKET_TARGET`, an rclone `remote:path`; the rclone config with its key
+   is `BUCKET_CONFIG`, outside this repo) gets the same changes and removals, plus the
+   download symlinks pointing at changed packages: the bucket has copies of those
    (`mmc-develop-osx64.tar.gz` -> `mmc-develop-osx64-5.15.2.tar.gz`).
-4. Purges every file of the release (and the download symlinks) from Cloudflare's cache
-   at `PUBLIC_URL`, so the overwritten indexes and downloads are served fresh. It needs
-   `CLOUDFLARE_ZONE_ID` and an API token with Zone / Cache Purge permission in the file
-   `CLOUDFLARE_TOKEN` (outside this repo). The list is the release's files, not what was
-   transferred this time, so if the purge fails, publishing again retries it. Up to 100
-   URLs per request (Free plan); a release is ~104. Files changed by hand (e.g. a
-   `channels.json`) aren't purged by this; purge them in the dashboard.
+5. **Purges** every changed or removed file (and those symlinks) from Cloudflare's cache at
+   `PUBLIC_URL`. It needs `CLOUDFLARE_ZONE_ID` and an API token with Zone / Cache Purge
+   permission in the file `CLOUDFLARE_TOKEN` (outside this repo). Up to 100 URLs per
+   request (Free plan). If it fails, publishing again retries it. Files changed by hand
+   (e.g. a `channels.json`) aren't purged by this; purge them in the dashboard.
 
 Without the bucket or purge settings `publish.py` refuses to start; `--no-bucket` and
 `--no-purge` skip them deliberately. Production's bucket is the R2 bucket `multimc-files`
@@ -267,14 +284,11 @@ Without the bucket or purge settings `publish.py` refuses to start; `--no-bucket
 (`files2-r2.multimc.org`). Both were seeded on 2026-10-24 (files2: 3.2 GB in 98 s;
 production: synced from the deth001 tree it had held files2's data before). Until cutover
 TeamCity keeps releasing to deth001 and S3, so the production bucket falls behind; re-sync
-it then (`rclone sync` of `state/files` after `files-pull.py`). The translations and Patreon
-jobs don't write to it yet either. Publishing a release again is a
-no-op. Only this release's files go to the bucket: the translations and Patreon jobs write
-to the live tree too (`translations/`, `patrons.txt`) and upload what they change
-themselves; `notifications.json` is edited by hand. (TeamCity's deploy instead synced the
-whole live tree to S3 from deth001, where the tree is.) `FILES_ORIGIN` can also be a local
-directory. Empty, there is no live tree: the whole local tree is synced to the bucket,
-deleting what the tree no longer has.
+it then (`rclone sync` of `state/files` after `files-pull.py`). The Patreon job doesn't
+write to it yet either. `notifications.json` is edited by hand. (TeamCity's deploy instead
+synced the whole live tree to S3 from deth001, where the tree is.) `FILES_ORIGIN` can also
+be a local directory. Empty, there is no live tree: the whole local tree is synced to the
+bucket, deleting what the tree no longer has.
 
 The bucket is written with rclone (in the deployer image): 32 transfers and checks at once,
 comparing by size and MD5 (`--checksum`), so objects uploaded earlier, also by s3cmd,
@@ -294,6 +308,13 @@ Verified:
 - 2026-10-24, the full production path on files2 (deth001 + R2 + purge): builds 5011 (with
   s3cmd) and 5012 (with rclone, through hopper); afterwards the bucket matched the local
   tree exactly (`rclone check`, 9774 files). Not yet run for files.multimc.org.
+- 2026-10-25, the publish list on files2: build 5013 (through hopper, 26 files); afterwards
+  deth001 and the bucket matched the local tree; publishing again found everything already
+  published; a local file changed after the deploy, and a live download changed by hand,
+  each stopped it before anything was copied. Then the first translations release (the
+  staged `release.py`, from a local test commit): 1 index changed, 1698 files removed
+  (`.class`, and the unlisted `ach.qm`, `en.qm`, `pt.qm`), 16 s; files2 serves 56
+  languages as `<lang>.qm`, all sizes and SHA-1s matching the index.
 
 Caching on files2 (2026-10-24): `files/*` has a Page Rule "Cache Everything" (store files
 never change, so the cache can't go stale); `downloads/` archives are cached by Cloudflare's
@@ -357,6 +378,19 @@ was published, and updated itself to it. Then Launchers from build 5001 on Windo
 macOS 11 (macmini) and Linux (lin64) all updated themselves to 5002, the first real runs
 of the cross-built Windows and macOS Launchers (they also start, log in and launch the
 game). lin32 is not tested yet.
+
+## Translations (`translations-build.py`)
+
+    ./translations-build.py [--config FILE] [--out DIR] [commit]
+
+Mirrors `TRANSLATIONS_REPO` (`state/translations.git`), checks out `TRANSLATIONS_BRANCH`
+at the commit (default: its head) and runs the repo's `release.py` in
+`IMAGE_TRANSLATIONS`, without network. A language whose `.po` can't be used keeps its
+previous release, taken from the local files tree's `translations/index_v2.json`. The
+release goes into `RELEASES_DIR/translations-<time>-<commit>` with a manifest (kind
+`translations`); `deploy.py` and `publish.py` handle it like a Launcher build. One release
+build at a time, shared with `release-build.py`. Translations releases have fixed names
+(`<lang>.qm`); the first one removes the `<sha1>.class` files that piled up before.
 
 ## hopper (`hopper.py`)
 
