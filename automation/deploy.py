@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Deploy a release into the local files tree (FILES_ROOT): a Launcher build made by
-release-build.py, or translations made by translations-build.py.
+release-build.py, translations made by translations-build.py, or the Patreon credits
+made by patrons-update.py.
 
     deploy.py [--config FILE] <release dir>
 
@@ -25,6 +26,8 @@ already in the channel (the updater only offers newer IDs).
 Translations: translations/ becomes the release's files, plus the files of languages that
 kept their previous release (still named in the new index); everything else in there is
 removed, so nothing piles up.
+
+Patreon credits: patrons.txt replaces the tree's.
 """
 
 import argparse
@@ -54,6 +57,8 @@ def main():
         common.die("no files tree at %s (run files-pull.py)" % root)
     if manifest.get("kind") == "translations":
         deploy_translations(settings, release, manifest, root)
+    elif manifest.get("kind") == "patrons":
+        deploy_patrons(settings, release, root)
     else:
         deploy_launcher(settings, release, manifest, root)
 
@@ -127,6 +132,19 @@ def deploy_translations(settings, release, manifest, root):
             (target / name).unlink()
         log("%d files copied, %d removed" % (len(manifest["files"]), len(removed)))
 
+        changes = common.tree_changes(snapshot, root)
+        common.write_publish_list(release, snapshot, changes)
+
+    log("deployed to %s (not published); %d files to publish, see %s"
+        % (root, len(changes), release / "publish.json"))
+
+
+
+def deploy_patrons(settings, release, root):
+    with common.lock_files(settings):
+        snapshot = common.snapshot_files(settings, "before-patrons")
+        log("snapshot of the tree as it was: %s" % snapshot.name)
+        shutil.copyfile(release / "patrons.txt", root / "patrons.txt")
         changes = common.tree_changes(snapshot, root)
         common.write_publish_list(release, snapshot, changes)
 

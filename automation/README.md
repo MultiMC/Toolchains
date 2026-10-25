@@ -11,6 +11,7 @@ the files tree, publish to the live tree and a bucket. TeamCity still does the r
 | `compat-check.py` | The compatibility gate: checks a build against its description (`expectations/`) |
 | `translations-build.py` | Builds a translations release (the Translations repo's `release.py`, in its image) |
 | `translations-template.py` | Updates the translations template from the Launcher source and pushes it |
+| `patrons-update.py` | Makes the Patreon credits (`patrons.txt`) as a release |
 | `deploy.py` | Deploys a release (Launcher build or translations) into the local files tree, writes its publish list |
 | `publish.py` | Publishes a release's publish list to the live tree and the bucket, purges Cloudflare's cache |
 | `files-pull.py` | Makes the local files tree a copy of the live one |
@@ -410,10 +411,38 @@ Verified 2026-10-25 (dry run, Launcher e073ab64): 1111 strings, none added or re
 3 s; the commit only reorders entries and the source locations within four of them, the
 one-time effect of `update.py` handing files to `lupdate` in sorted order.
 
+## Patreon credits (`patrons-update.py`)
+
+    ./patrons-update.py [--config FILE]
+
+`patrons.txt` (the Launcher's credits) lists the active patrons of the tier in
+`tokens.cfg` (`[Config] reward`, the "Patron" tier) by name, then "And N others who wish to
+remain anonymous." for active patrons without a tier; `patrons.json` adds image and
+Patreon URLs. Made with Patreon's API v2, plain HTTP. Then `deploy.py` and `publish.py`, as
+for any release (only `patrons.txt` goes live, as before). hopper runs all three on
+`PATRONS_SCHEDULE` (default `0 12 * * *`, daily at noon).
+
+- **The token** is `PATRONS_CONFIG/tokens.cfg` (`~/.config/multimc-deploy/patreon/`, mode
+  600): the API client and a refresh token. Every run refreshes it first; Patreon then
+  issues a new refresh token and the old one stops working, so the new pair is saved
+  (atomically, the old file kept as `tokens.cfg.prev`) before anything else is asked.
+  It exists on one machine only; `files2.env` sets `PATRONS_CONFIG` empty, so files2 never
+  runs it. One run at a time.
+- **Checked before release:** an empty list, or one less than half as long as the live
+  one, is refused, and the old list stays live.
+
+History: TeamCity ran `patronupdater.py` (the deployer image) daily. Patreon switched off
+API v1 on 2026-10-08 (410 Gone); the job kept "passing" because its step script had no
+`set -e` and ended with `cat out/patrons.txt`, a file left by the last good run, which was
+then re-published every day. On 2026-10-25 the API client was switched to v2 with new
+tokens; the first v2 list had 19 patrons (17 unchanged, 2 new, 1 gone) and the same 6
+anonymous.
+
 ## hopper (`hopper.py`)
 
     ./hopper.py [--config FILE] watch [--once]
     ./hopper.py [--config FILE] release <launcher|translations> <commit>
+    ./hopper.py [--config FILE] release patrons
     ./hopper.py [--config FILE] status
 
 hopper moves releases through their stages. For now it is the trigger, for two streams:
@@ -421,7 +450,12 @@ hopper moves releases through their stages. For now it is the trigger, for two s
 `translations` (`TRANSLATIONS_BRANCH` of `TRANSLATIONS_REPO`, built by
 `translations-build.py`). `watch` looks at the head of each every `WATCH_INTERVAL` seconds
 (`git ls-remote`), and a commit it hasn't handled goes through the stream's build,
-`deploy.py` and `publish.py`, each only if the one before succeeded. It builds and publishes nothing itself, so every
+`deploy.py` and `publish.py`, each only if the one before succeeded. It also runs
+scheduled jobs, with cron-style schedules (`cron.py`): `patrons` (`patrons-update.py` on
+`PATRONS_SCHEDULE`, only where `PATRONS_CONFIG` is set). A scheduled job runs once for the
+most recent scheduled time it hasn't handled: after the machine was off, once, not once
+per missed time. A release whose deploy changed nothing (e.g. a
+Translations commit that only updates the template) is published as a no-op. It builds and publishes nothing itself, so every
 step can still be run and inspected by hand. Tagging, promotion, purging and the backend
 for a UI are meant to join it as further commands, working on the same files tree and
 plain state files (see `UPDATER.md` next to the Toolchains repo).

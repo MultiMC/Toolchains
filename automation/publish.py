@@ -88,6 +88,10 @@ def main():
     log("%s%s: %d files -> %s" % ("(dry run) " if args.dry_run else "", release.name, len(changes),
                                   origin or settings["BUCKET_TARGET"]))
 
+    if not changes:
+        log("nothing to publish: the deploy changed nothing in the tree")
+        return
+
     with common.lock_files(settings):
         check_local(root, changes)
         stages = in_stages(changes)
@@ -145,6 +149,8 @@ def check_local(root, changes):
 def live_hashes(settings, paths):
     """{path: sha256 or None} for these paths in the live tree (FILES_ORIGIN: host:dir or a dir)."""
     origin = settings["FILES_ORIGIN"]
+    if not paths:
+        return {}
     if ":" not in origin:
         return {path: common.sha256_file(Path(origin) / path) if (Path(origin) / path).is_file() else None
                 for path in paths}
