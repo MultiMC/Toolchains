@@ -16,7 +16,7 @@ build steps into them, builds, packages, and checks the result against the shipp
 in the snapshots.
 
 Large files (images, archives, VM disks, the Windows toolchain tree) are not in git. They
-are on this machine and mirrored to `mikoshi:~/mirror/MultiMC-Toolchains` by
+are on the main dev machine and mirrored to `mikoshi:~/mirror/MultiMC-Toolchains` by
 `./mirror.sh` (exact copy, `--delete`; `--dry-run` shows what would change; it verifies
 every `SHA256SUMS` on the mirror afterwards). Every directory with large files has a
 `SHA256SUMS` and a README saying where they came from.

@@ -10,12 +10,16 @@ local files tree, and is published.
 Streams, each a branch of a repository and the script that builds a release from it:
   launcher      LAUNCHER_BRANCH of LAUNCHER_REPO, built by release-build.py
   translations  TRANSLATIONS_BRANCH of TRANSLATIONS_REPO, built by translations-build.py
+  website       WEBSITE_BRANCH of WEBSITE_REPO, built by website-build.py and published to the
+                test site by website-publish.py (not deploy.py and publish.py; production
+                is promoted by hand: website-publish.py --production). Off where
+                WEBSITE_REPO is empty (files2).
 Scheduled jobs, with a cron-style schedule ("minute hour day-of-month month day-of-week",
 see cron.py); a job runs once for the most recent scheduled time it hasn't handled, so after
 the machine was off it runs once, not once per missed time:
   patrons       the Patreon credits, made by patrons-update.py on PATRONS_SCHEDULE (only
                 with PATRONS_CONFIG set: one machine, production)
-All of them then go through deploy.py and publish.py.
+All of them then go through deploy.py and publish.py, except the website (above).
 
 watch    every WATCH_INTERVAL seconds, look at the head of each stream's branch. A commit
          not handled yet goes through its build, deploy.py and publish.py, each step only
@@ -59,11 +63,16 @@ class Stream:
     repo_setting: str
     branch_setting: str
     build_script: str
+    publish_script: str = None  # takes the release instead of deploy.py and publish.py
+
+    def enabled(self, settings):
+        return bool(settings[self.repo_setting])
 
 
 STREAMS = {s.name: s for s in [
     Stream("launcher", "LAUNCHER_REPO", "LAUNCHER_BRANCH", "release-build.py"),
     Stream("translations", "TRANSLATIONS_REPO", "TRANSLATIONS_BRANCH", "translations-build.py"),
+    Stream("website", "WEBSITE_REPO", "WEBSITE_BRANCH", "website-build.py", "website-publish.py"),
 ]}
 
 
@@ -113,6 +122,8 @@ def main():
     with common.locked(str(state.path) + ".lock", "another hopper uses %s" % state.path):
         state.interrupt_stale()
         if args.command == "release" and args.job in STREAMS:
+            if not STREAMS[args.job].enabled(settings):
+                common.die("%s isn't enabled with these settings (%s is empty)" % (args.job, STREAMS[args.job].repo_setting))
             run_pipeline(config, state, STREAMS[args.job], {"commit": args.commit})
         elif args.command == "release":
             job = SCHEDULED[args.job]
@@ -194,7 +205,8 @@ def head(settings, stream):
 def watch(settings, config, state):
     interval = int(settings["WATCH_INTERVAL"])
     for stream in STREAMS.values():
-        log("watching %s: %s %s" % (stream.name, settings[stream.repo_setting], settings[stream.branch_setting]))
+        log("watching %s: %s" % (stream.name, "%s %s" % (settings[stream.repo_setting], settings[stream.branch_setting])
+                                 if stream.enabled(settings) else "off (%s is empty)" % stream.repo_setting))
     for job in SCHEDULED.values():
         log("scheduled %s: %s" % (job.name, settings[job.schedule_setting] if job.enabled(settings)
                                   else "off (%s is empty)" % job.enabled_setting))
@@ -212,6 +224,8 @@ def watch(settings, config, state):
 def look(settings, config, state):
     """One look at every stream and scheduled job; handles at most one release each."""
     for stream in STREAMS.values():
+        if not stream.enabled(settings):
+            continue
         commit = head(settings, stream)
         if state.handled(stream, "commit", commit):
             continue
@@ -281,9 +295,12 @@ class Run:
         if status:
             return self.finish("failed", "build failed, nothing deployed")
 
-        if self.step("deploy", "deploy.py", release, stdout=self.logf)[0]:
+        if self.job.publish_script:
+            if self.step("publish", self.job.publish_script, release, stdout=self.logf)[0]:
+                return self.finish("failed", "publish failed")
+        elif self.step("deploy", "deploy.py", release, stdout=self.logf)[0]:
             return self.finish("failed", "deploy failed, nothing published")
-        if self.step("publish", "publish.py", stdout=self.logf)[0]:
+        elif self.step("publish", "publish.py", stdout=self.logf)[0]:
             return self.finish("failed", "publish failed")
         what = "build %s" % self.entry["build"] if self.entry.get("build") else os.path.basename(release)
         self.finish("published", "%s published" % what)

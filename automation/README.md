@@ -16,6 +16,8 @@ the files tree, publish to the live tree and a bucket. TeamCity still does the r
 | `publish.py` | Publishes everything that changed in the tree since the last publish to the live tree and the bucket, purges Cloudflare's cache |
 | `files-pull.py` | Makes the local files tree a copy of the live one |
 | `hopper.py` | hopper: watches the branch and moves each new commit through build, deploy and publish; later also tags and the UI backend |
+| `website-build.py` | Builds the website (multimc.org) from the Website repo with Hugo, as a release |
+| `website-publish.py` | Publishes a website release to the test site, or promotes the one on test to production |
 | `releases.py` | Lists the releases in `RELEASES_DIR`; cleans up old ones (trims build trees, removes the oldest) |
 | `files-snapshots.py` | Lists, takes, restores and removes snapshots of the local files tree |
 | `remote/hopper-ssh` | Installed on the files host (deth001): the only things the automation's SSH key may do there |
@@ -495,6 +497,28 @@ then re-published every day. On 2026-10-25 the API client was switched to v2 wit
 tokens; the first v2 list had 19 patrons (17 unchanged, 2 new, 1 gone) and the same 6
 anonymous.
 
+## Website (`website-build.py`, `website-publish.py`)
+
+    ./website-build.py [--config FILE] [--out DIR] [commit]
+    ./website-publish.py [--config FILE] [--dry-run] [--no-purge] [release]
+    ./website-publish.py [--config FILE] [--dry-run] [--no-purge] --production [release]
+
+multimc.org is a static Hugo site from `WEBSITE_BRANCH` of `WEBSITE_REPO` (MultiMC/Website).
+`website-build.py` builds it with `IMAGE_SITE`, TeamCity's image with Hugo 0.31.1 (not
+rebuildable; it is loaded from `../snapshots/2026-10-21-deth001`), into
+`RELEASES_DIR/website-<time>-<commit>/site`. The output is the same as TeamCity's builds
+(verified against test.multimc.org), except the copyright year, which Hugo takes from the
+clock.
+
+Publishing works like TeamCity's "Publish Test" and "Publish Prod", but with R2 instead of
+AWS S3: `website-publish.py` makes the test bucket (`WEBSITE_TEST_TARGET`, served at
+`WEBSITE_TEST_URL`) an exact copy of a release, purges its URLs (and those of removed files)
+from Cloudflare's cache, and records the release in `RELEASES_DIR/website-test.live`. hopper
+does this for every new commit (the `website` stream). `--production` promotes the release
+that is on test to `WEBSITE_TARGET` (`WEBSITE_URL`), so production gets exactly the files
+checked on test; it's run by hand. The release cleanup never removes a release that is live
+(`*.live`). The website is production's only (`WEBSITE_REPO` is empty in `files2.env`).
+
 ## hopper (`hopper.py`)
 
     ./hopper.py [--config FILE] watch [--once]
@@ -502,10 +526,12 @@ anonymous.
     ./hopper.py [--config FILE] release patrons
     ./hopper.py [--config FILE] status
 
-hopper moves releases through their stages. For now it is the trigger, for two streams:
+hopper moves releases through their stages. For now it is the trigger, for three streams:
 `launcher` (`LAUNCHER_BRANCH` of `LAUNCHER_REPO`, built by `release-build.py`) and
 `translations` (`TRANSLATIONS_BRANCH` of `TRANSLATIONS_REPO`, built by
-`translations-build.py`). `watch` looks at the head of each every `WATCH_INTERVAL` seconds
+`translations-build.py`) and `website` (`WEBSITE_BRANCH` of `WEBSITE_REPO`, built by
+`website-build.py` and published to the test site by `website-publish.py` instead of
+`deploy.py` and `publish.py`; off where `WEBSITE_REPO` is empty). `watch` looks at the head of each every `WATCH_INTERVAL` seconds
 (`git ls-remote`), and a commit it hasn't handled goes through the stream's build,
 `deploy.py` and `publish.py`, each only if the one before succeeded. It also runs
 scheduled jobs, with cron-style schedules (`cron.py`): `patrons` (`patrons-update.py` on

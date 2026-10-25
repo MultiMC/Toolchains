@@ -33,12 +33,9 @@ objects uploaded earlier aren't uploaded again.
 """
 
 import argparse
-import json
 import os
 import re
 import subprocess
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 import common
@@ -203,13 +200,8 @@ def copy(settings, what, paths, dry_run, *options):
 
 
 def rclone(settings, *args, **kwargs):
-    """Run rclone in the deployer image, with FILES_ROOT at /deploy/files (read-only)."""
-    common.run(*common.container_run(settings), "-i",
-               "-v", "%s:/deploy/files:ro" % settings["FILES_ROOT"],
-               "-v", "%s:/private/rclone.conf:ro" % settings["BUCKET_CONFIG"],
-               settings["IMAGE_DEPLOYER"], "rclone", "--config", "/private/rclone.conf",
-               "--checksum", "--copy-links", "--transfers", "32", "--checkers", "32",
-               "--stats-one-line", "--stats", "0", "-v", *args, **kwargs)
+    """rclone with FILES_ROOT at /deploy/files (read-only)."""
+    common.rclone(settings, *args, mount=(settings["FILES_ROOT"], "/deploy/files"), **kwargs)
 
 
 def upload_to_bucket(settings, what, paths, dry_run):
@@ -234,32 +226,10 @@ def sync_bucket(settings, dry_run):
 
 
 def purge_cache(settings, paths, dry_run):
-    """Evict these paths (relative to FILES_ROOT) from Cloudflare's cache at PUBLIC_URL.
-    Purge by URL takes up to 100 URLs per request on the Free plan."""
-    urls = [settings["PUBLIC_URL"].rstrip("/") + "/" + path for path in paths]
-    log("Cloudflare: purging %d URLs under %s" % (len(urls), settings["PUBLIC_URL"]))
-    if dry_run:
-        for url in urls:
-            print("    " + url)
-        return
-
-    token = Path(settings["CLOUDFLARE_TOKEN"]).read_text().strip()
-    endpoint = "https://api.cloudflare.com/client/v4/zones/%s/purge_cache" % settings["CLOUDFLARE_ZONE_ID"]
-    for start in range(0, len(urls), 100):
-        request = urllib.request.Request(endpoint, method="POST",
-                                         data=json.dumps({"files": urls[start:start + 100]}).encode(),
-                                         headers={"Authorization": "Bearer " + token,
-                                                  "Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                result = json.load(response)
-        except urllib.error.HTTPError as e:
-            result = {"success": False, "errors": e.read().decode(errors="replace")}
-        except urllib.error.URLError as e:
-            result = {"success": False, "errors": str(e.reason)}
-        if not result.get("success"):
-            common.die("the purge failed (everything else is published; publish again to retry): %s"
-                       % result.get("errors"))
+    """Evict these paths (relative to FILES_ROOT) from Cloudflare's cache at PUBLIC_URL."""
+    log("Cloudflare: purging %d URLs under %s" % (len(paths), settings["PUBLIC_URL"]))
+    common.purge_cache(settings, [settings["PUBLIC_URL"].rstrip("/") + "/" + path for path in paths], dry_run,
+                       "everything else is published; publish again to retry")
 
 
 if __name__ == "__main__":

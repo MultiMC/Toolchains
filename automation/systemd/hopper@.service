@@ -35,6 +35,8 @@ IOSchedulingPriority=7
 # up to two minutes when a build has to stop its containers.
 KillMode=mixed
 TimeoutStopSec=180
+# Its exit status then is 128 + SIGTERM: a clean stop, not a failure
+SuccessExitStatus=143
 
 # A crash of hopper itself. Failed builds don't stop it; they're recorded and skipped.
 Restart=on-failure
