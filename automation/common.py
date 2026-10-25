@@ -429,6 +429,78 @@ def cleanup_snapshots(settings, dry_run=False):
     return removed
 
 
+# Releases in RELEASES_DIR: Launcher builds (<build number>/) and translations-*, patrons-*,
+# template-* directories. A Launcher release's build/ (the compiler trees, ~1 GB) and src/
+# are only needed to look into how it was built: deploy.py uses its packages/ and deploy/.
+
+TRIMMED = "TRIMMED"
+
+
+def release_kind(release):
+    """launcher, translations, patrons, template, ... or None for a leftover .preparing-<pid>."""
+    if release.name.isdigit():
+        return "launcher"
+    if release.name.startswith(".preparing-"):
+        return None
+    return release.name.split("-", 1)[0]
+
+
+def release_time(release):
+    manifest = release / "manifest.json"
+    return (manifest if manifest.is_file() else release).stat().st_mtime
+
+
+def releases(settings):
+    """The release directories, oldest first within each kind (build number, or the time in
+    the name)."""
+    directory = Path(settings["RELEASES_DIR"])
+    if not directory.is_dir():
+        return []
+    found = [p for p in directory.iterdir() if p.is_dir()]
+    return sorted(found, key=lambda p: (int(p.name) if p.name.isdigit() else 0, p.name))
+
+
+def cleanup_releases(settings, dry_run=False):
+    """Trim and remove old releases: Launcher releases older than the newest
+    RELEASES_KEEP_BUILD_TREES lose build/ and src/ (TRIMMED records when); of each kind, only
+    the newest RELEASES_KEEP are kept at all. Nothing younger than RELEASES_MIN_AGE_HOURS is
+    touched, leftovers of interrupted builds (.preparing-*) included. The caller holds the
+    release lock. Returns [(action, name)]."""
+    keep = int(settings["RELEASES_KEEP"])
+    keep_trees = int(settings["RELEASES_KEEP_BUILD_TREES"])
+    young = time.time() - float(settings["RELEASES_MIN_AGE_HOURS"]) * 3600
+    by_kind = {}
+    for release in releases(settings):
+        by_kind.setdefault(release_kind(release), []).append(release)
+
+    done = []
+    for kind, found in by_kind.items():
+        old = [p for p in found if release_time(p) <= young]
+        if kind is None:
+            remove = old
+        else:
+            remove = [p for p in found[:-keep] if p in old] if keep else old
+        for release in remove:
+            done.append(("removed", release.name))
+            if not dry_run:
+                shutil.rmtree(release)
+        if kind != "launcher":
+            continue
+        for release in (found[:-keep_trees] if keep_trees else found):
+            if release in remove or release not in old or (release / TRIMMED).exists():
+                continue
+            if not any((release / d).exists() for d in ("build", "src")):
+                continue
+            done.append(("trimmed", release.name))
+            if not dry_run:
+                for d in ("build", "src"):
+                    if (release / d).exists():
+                        shutil.rmtree(release / d)
+                (release / TRIMMED).write_text("build/ and src/ removed %s by the release cleanup\n"
+                                               % time.strftime("%Y-%m-%d %H:%M:%S"))
+    return done
+
+
 def channel_versions(index):
     """The version list of a channel's index.json (text); IDs are strings, older ones numbers."""
     return [{**v, "Id": str(v["Id"])} for v in json.loads(index)["Versions"]]

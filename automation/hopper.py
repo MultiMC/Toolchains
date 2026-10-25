@@ -244,7 +244,11 @@ def run_pipeline(config, state, job, item):
     try:
         run.steps()
     except BaseException:
-        run.finish("interrupted", "stopped during %s; not retried automatically" % run.entry["step"])
+        if run.entry["status"] != "published":  # stopped in the cleanup after it: still published
+            run.finish("interrupted", "stopped during %s; not retried automatically" % run.entry["step"])
+        else:
+            run.entry.pop("step", None)
+            run.state.save()
         raise
     finally:
         run.logf.close()
@@ -283,6 +287,11 @@ class Run:
             return self.finish("failed", "publish failed")
         what = "build %s" % self.entry["build"] if self.entry.get("build") else os.path.basename(release)
         self.finish("published", "%s published" % what)
+        # Housekeeping, not part of the release: a failure is only logged
+        if self.step("cleanup", "releases.py", "cleanup", stdout=self.logf)[0]:
+            log("%s %s: the release cleanup failed (see %s)" % (self.job.name, label(self.entry), self.logfile))
+        self.entry.pop("step", None)
+        self.state.save()
 
     def step(self, name, script, *args, stdout):
         """Run one script; returns (exit status, its standard output if stdout=PIPE). If

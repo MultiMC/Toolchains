@@ -16,6 +16,7 @@ the files tree, publish to the live tree and a bucket. TeamCity still does the r
 | `publish.py` | Publishes everything that changed in the tree since the last publish to the live tree and the bucket, purges Cloudflare's cache |
 | `files-pull.py` | Makes the local files tree a copy of the live one |
 | `hopper.py` | hopper: watches the branch and moves each new commit through build, deploy and publish; later also tags and the UI backend |
+| `releases.py` | Lists the releases in `RELEASES_DIR`; cleans up old ones (trims build trees, removes the oldest) |
 | `files-snapshots.py` | Lists, takes, restores and removes snapshots of the local files tree |
 | `remote/hopper-ssh` | Installed on the files host (deth001): the only things the automation's SSH key may do there |
 | `common.py` | Shared by the scripts: settings, platforms, the container command, locking |
@@ -136,6 +137,21 @@ The counter isn't created automatically: a missing one stops the build.
 Standard output gets exactly one line, the release directory, as soon as it exists (also if
 the build fails later); all logging goes to standard error. So
 `./deploy.py "$(./release-build.py)"` works.
+
+### Cleanup (`releases.py`)
+
+    ./releases.py [--config FILE] list
+    ./releases.py [--config FILE] cleanup [--dry-run]
+
+A Launcher release is ~1.2 GB, almost all of it `build/` (the compiler trees; win32 alone
+~750 MB). deploy.py only needs `packages/` and `deploy/`, so the cleanup first trims:
+Launcher releases older than the newest `RELEASES_KEEP_BUILD_TREES` (3) lose `build/` and
+`src/`, keeping packages, deploy archives, logs, compat reports and the manifest (~70 MB; a
+`TRIMMED` file says when). They can still be inspected and deployed again. Of each kind
+(launcher, translations, patrons, template) only the newest `RELEASES_KEEP` (30) are kept
+at all. Nothing younger than `RELEASES_MIN_AGE_HOURS` (24) is touched; leftovers of
+interrupted builds (`.preparing-*`) go once they are older. It takes the release lock (and
+skips the run if a build holds it). hopper runs it after every publish.
 
 ### One at a time
 
@@ -512,6 +528,8 @@ plain state files (see `UPDATER.md` next to the Toolchains repo).
   release).
 - **Release builds started by hand** (or by anything else) make hopper skip that look and
   try again next time, rather than record a clash as a failure.
+- **Housekeeping:** after a successful publish, `releases.py cleanup` (in the same log); its
+  failure is logged and doesn't change the release's status.
 - **Stopping:** SIGTERM or Ctrl-C stops the running step and records the commit as
   `interrupted`; an entry still `running` when hopper starts (after a crash or kill) is
   recorded as `interrupted` too. One hopper per state file.
