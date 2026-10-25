@@ -17,6 +17,7 @@ the files tree, publish to the live tree and a bucket. TeamCity still does the r
 | `files-pull.py` | Makes the local files tree a copy of the live one |
 | `hopper.py` | hopper: watches the branch and moves each new commit through build, deploy and publish; later also tags and the UI backend |
 | `files-snapshots.py` | Lists, takes, restores and removes snapshots of the local files tree |
+| `remote/hopper-ssh` | Installed on the files host (deth001): the only things the automation's SSH key may do there |
 | `common.py` | Shared by the scripts: settings, platforms, the container command, locking |
 | `defaults.env` | Every setting, with its default |
 | `files2.env` | Settings for the files2 test system |
@@ -370,6 +371,18 @@ releases one day), the newest `SNAPSHOTS_KEEP` (30) others, and anything younger
 Verified 2026-10-23 on a copy of the tree: a deploy's snapshot showed exactly what it
 changed, restoring it gave back the original tree byte for byte, and deploying again
 worked. `state/files` and `state/files2` were converted with `init` the same day.
+
+### Access to the files host (`remote/hopper-ssh`)
+
+On mikoshi the automation reaches deth001 with its own key (`hopper@mikoshi`), which root's
+`authorized_keys` there ties to `/usr/local/bin/hopper-ssh` (`restrict,command=...`). The
+wrapper allows only `hopper-ssh hash <tree>` (SHA-256 of listed files; the live check),
+`hopper-ssh remove <tree>` (removals when publishing) and rsync's server side, all inside
+`/home/http/files` and `/home/http/files2`; anything else is refused and logged
+(`journalctl -t hopper-ssh`). `publish.py` uses the same commands with any key, so
+publishing from the workstation (root's key) goes through the wrapper too. Verified
+2026-10-25: hash, rsync pull and push work; arbitrary commands, other directories, `..`
+paths and rsync elsewhere are refused.
 
 ### `files-pull.py`
 

@@ -36,7 +36,6 @@ import argparse
 import json
 import os
 import re
-import shlex
 import subprocess
 import urllib.error
 import urllib.request
@@ -139,7 +138,9 @@ def links_to(directory, paths):
 
 
 def live_hashes(settings, paths):
-    """{path: sha256 or None} for these paths in the live tree (FILES_ORIGIN: host:dir or a dir)."""
+    """{path: sha256 or None} for these paths in the live tree (FILES_ORIGIN: host:dir or a dir).
+    On a host, through hopper-ssh (remote/hopper-ssh, installed there), the only commands the
+    automation's key may run besides rsync."""
     origin = settings["FILES_ORIGIN"]
     if not paths:
         return {}
@@ -148,13 +149,12 @@ def live_hashes(settings, paths):
                 for path in paths}
 
     host, directory = origin.split(":", 1)
-    script = ('cd %s && while IFS= read -r f; do if [ -f "$f" ]; then sha256sum -- "$f"; '
-              'else printf -- "- %%s\\n" "$f"; fi; done' % shlex.quote(directory))
-    result = common.run("ssh", host, script, input="\n".join(paths) + "\n", stdout=subprocess.PIPE, text=True)
+    result = common.run("ssh", host, "hopper-ssh", "hash", directory.rstrip("/"),
+                        input="\n".join(paths) + "\n", stdout=subprocess.PIPE, text=True)
     hashes = {}
     for line in result.stdout.splitlines():
-        digest, path = line.split(None, 1)
-        hashes[path.strip()] = None if digest == "-" else digest
+        digest, path = line.split("  ", 1)
+        hashes[path] = None if digest == "-" else digest
     return hashes
 
 
@@ -182,7 +182,7 @@ def remove_live(settings, paths, dry_run):
     origin = settings["FILES_ORIGIN"]
     if ":" in origin:
         host, directory = origin.split(":", 1)
-        common.run("ssh", host, "cd %s && xargs -d '\\n' rm -f --" % shlex.quote(directory),
+        common.run("ssh", host, "hopper-ssh", "remove", directory.rstrip("/"),
                    input="\n".join(paths) + "\n", text=True)
     else:
         for path in paths:

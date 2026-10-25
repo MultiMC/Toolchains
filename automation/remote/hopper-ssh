@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""The only things the automation's SSH key may do on the files host (deth001).
+
+Installed as /usr/local/bin/hopper-ssh and forced for that key in root's authorized_keys:
+
+    restrict,command="/usr/local/bin/hopper-ssh" ssh-ed25519 AAAA... hopper@mikoshi
+
+It reads the requested command from SSH_ORIGINAL_COMMAND (or, run directly, from its
+arguments) and allows only:
+
+    hopper-ssh hash <tree>      stdin: relative paths, one per line; prints "<sha256>  <path>",
+                                or "-  <path>" for a path that isn't a file
+    hopper-ssh remove <tree>    stdin: relative paths; removes those files
+    rsync --server ...          rsync to or from a tree (what rsync runs on this side)
+
+where <tree> is one of TREES. Paths must stay inside the tree. Anything else is refused
+and logged (journal, identifier hopper-ssh). It runs as root, so rsync can give the files
+their owner (--chown).
+"""
+
+import hashlib
+import os
+import shlex
+import sys
+import syslog
+
+TREES = ("/home/http/files", "/home/http/files2")
+
+# rsync options that name a place to read or write besides the transfer itself
+PATH_OPTIONS = ("--backup-dir", "--temp-dir", "-T", "--partial-dir", "--log-file", "--write-batch",
+                "--only-write-batch", "--read-batch", "--link-dest", "--copy-dest", "--compare-dest",
+                "--files-from", "--exclude-from", "--include-from", "--rsync-path")
+
+
+def main():
+    command = os.environ.get("SSH_ORIGINAL_COMMAND")
+    words = shlex.split(command) if command is not None else sys.argv[1:]
+    if not words:
+        refuse("no command")
+    if os.path.basename(words[0]) == "hopper-ssh":
+        words = words[1:]
+
+    if words[:1] == ["rsync"]:
+        allow_rsync(words)
+    elif len(words) == 2 and words[0] in ("hash", "remove"):
+        tree = check_tree(words[1])
+        paths = [line.rstrip("\n") for line in sys.stdin if line.strip()]
+        for path in paths:
+            check_inside(tree, path)
+        if words[0] == "hash":
+            for path in paths:
+                full = os.path.join(tree, path)
+                print("%s  %s" % (sha256(full) if os.path.isfile(full) and not os.path.islink(full) else "-", path))
+        else:
+            for path in paths:
+                full = os.path.join(tree, path)
+                if os.path.isfile(full) or os.path.islink(full):
+                    os.unlink(full)
+    else:
+        refuse("not allowed: %s" % " ".join(words))
+
+
+def allow_rsync(words):
+    """rsync's server side, with only options and the transfer's own arguments (".", tree path)."""
+    if "--server" not in words:
+        refuse("rsync without --server")
+    arguments = [w for w in words[1:] if not w.startswith("-")]
+    for word in words[1:]:
+        if word.startswith("-") and (word.split("=", 1)[0] in PATH_OPTIONS and word != "--files-from=-"):
+            refuse("rsync option not allowed: %s" % word)
+    if len(arguments) != 2 or arguments[0] != ".":
+        refuse("unexpected rsync arguments: %s" % arguments)
+    path = arguments[1]
+    tree = next((t for t in TREES if os.path.realpath(path.rstrip("/")) == t
+                 or os.path.realpath(path).startswith(t + os.sep)), None)
+    if tree is None:
+        refuse("rsync outside the trees: %s" % path)
+    syslog.syslog(syslog.LOG_INFO, "rsync %s %s" % ("from" if "--sender" in words else "to", path))
+    os.execvp("rsync", words)
+
+
+def check_tree(tree):
+    tree = tree.rstrip("/")
+    if tree not in TREES:
+        refuse("not one of the trees: %s" % tree)
+    return tree
+
+
+def check_inside(tree, path):
+    full = os.path.realpath(os.path.join(tree, path))
+    if os.path.isabs(path) or not full.startswith(tree + os.sep):
+        refuse("path outside %s: %s" % (tree, path))
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def refuse(message):
+    syslog.syslog(syslog.LOG_WARNING, "refused: %s" % message)
+    sys.stderr.write("hopper-ssh: refused: %s\n" % message)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    syslog.openlog("hopper-ssh")
+    main()
