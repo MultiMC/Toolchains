@@ -180,6 +180,38 @@ def locked(path, busy):
         yield
 
 
+# --- repositories ------------------------------------------------------------------------
+
+def update_mirror(url, path):
+    """A local mirror of the repository at `url` (cloned if needed, its origin set to `url`,
+    fetched); returns its path."""
+    path = Path(path)
+    if not path.is_dir():
+        logger("git")("cloning mirror of %s" % url)
+        run("git", "clone", "-q", "--mirror", url, path)
+    run("git", "-C", path, "remote", "set-url", "origin", url)
+    run("git", "-C", path, "fetch", "-q", "--prune", "origin")
+    return path
+
+
+def resolve_on_branch(mirror, branch, commit=None):
+    """The full commit for `commit` (default: the head of `branch`) in the mirror; it must be
+    on `branch`."""
+    resolved = subprocess.run(["git", "-C", str(mirror), "rev-parse", "--verify", "-q",
+                               "%s^{commit}" % (commit or "refs/heads/" + branch)],
+                              stdout=subprocess.PIPE, text=True).stdout.strip()
+    if not resolved:
+        die("no commit %s in %s" % (commit, mirror))
+    if subprocess.run(["git", "-C", str(mirror), "merge-base", "--is-ancestor", resolved,
+                       "refs/heads/" + branch]).returncode:
+        die("%s is not on %s" % (resolved, branch))
+    return resolved
+
+
+LAUNCHER_MIRROR = STATE / "launcher.git"
+TRANSLATIONS_MIRROR = STATE / "translations.git"
+
+
 # --- builds ------------------------------------------------------------------------------
 
 def is_locked(path):

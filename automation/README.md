@@ -10,6 +10,7 @@ the files tree, publish to the live tree and a bucket. TeamCity still does the r
 | `build/linux.sh`, `build/win32.sh`, `build/osx64.sh` | The build steps, run inside the containers (mounted at `/build`) |
 | `compat-check.py` | The compatibility gate: checks a build against its description (`expectations/`) |
 | `translations-build.py` | Builds a translations release (the Translations repo's `release.py`, in its image) |
+| `translations-template.py` | Updates the translations template from the Launcher source and pushes it |
 | `deploy.py` | Deploys a release (Launcher build or translations) into the local files tree, writes its publish list |
 | `publish.py` | Publishes a release's publish list to the live tree and the bucket, purges Cloudflare's cache |
 | `files-pull.py` | Makes the local files tree a copy of the live one |
@@ -392,28 +393,48 @@ release goes into `RELEASES_DIR/translations-<time>-<commit>` with a manifest (k
 build at a time, shared with `release-build.py`. Translations releases have fixed names
 (`<lang>.qm`); the first one removes the `<sha1>.class` files that piled up before.
 
+### The template (`translations-template.py`)
+
+    ./translations-template.py [--config FILE] [--dry-run] [launcher commit]
+
+Run by hand, as TeamCity's "Update Template" job was. Checks out the Translations repo's
+`TRANSLATIONS_BRANCH` with the Launcher (default: the head of `LAUNCHER_BRANCH`, with
+submodules) in its `src/`, in `RELEASES_DIR/template-<time>/`; runs the repo's `update.py`
+in `IMAGE_TRANSLATIONS` without network; if `template.pot` changed, commits it ("Update
+translation template for latest MultiMC code") and pushes it to `TRANSLATIONS_PUSH_URL`
+with the deploy key `TRANSLATIONS_DEPLOY_KEY` (outside this repo; GitHub's host key must
+already be known). If the branch moved meanwhile the push fails and nothing changes; run it
+again. `--dry-run` stops before the push. Crowdin picks the template up from the repo.
+
+Verified 2026-10-25 (dry run, Launcher e073ab64): 1111 strings, none added or removed, in
+3 s; the commit only reorders entries and the source locations within four of them, the
+one-time effect of `update.py` handing files to `lupdate` in sorted order.
+
 ## hopper (`hopper.py`)
 
     ./hopper.py [--config FILE] watch [--once]
-    ./hopper.py [--config FILE] release <commit>
+    ./hopper.py [--config FILE] release <launcher|translations> <commit>
     ./hopper.py [--config FILE] status
 
-hopper moves Launcher builds through their stages. For now it is the trigger: `watch` looks
-at the head of `LAUNCHER_BRANCH` every `WATCH_INTERVAL` seconds (`git ls-remote`), and a
-commit it hasn't handled goes through `release-build.py`, `deploy.py` and `publish.py`,
-each only if the one before succeeded. It builds and publishes nothing itself, so every
+hopper moves releases through their stages. For now it is the trigger, for two streams:
+`launcher` (`LAUNCHER_BRANCH` of `LAUNCHER_REPO`, built by `release-build.py`) and
+`translations` (`TRANSLATIONS_BRANCH` of `TRANSLATIONS_REPO`, built by
+`translations-build.py`). `watch` looks at the head of each every `WATCH_INTERVAL` seconds
+(`git ls-remote`), and a commit it hasn't handled goes through the stream's build,
+`deploy.py` and `publish.py`, each only if the one before succeeded. It builds and publishes nothing itself, so every
 step can still be run and inspected by hand. Tagging, promotion, purging and the backend
 for a UI are meant to join it as further commands, working on the same files tree and
 plain state files (see `UPDATER.md` next to the Toolchains repo).
 
-- **State:** `HOPPER_STATE` (JSON) records every handled commit: time, build number,
+- **State:** `HOPPER_STATE` (JSON, one list per stream) records every handled commit: time, build number,
   release directory, status (`published`, `failed`, `interrupted`, `adopted`) and the step
   it stopped at; `status` prints it. Each run's output goes to `HOPPER_STATE.logs/`.
 - **Fails closed:** a failed step stops the chain; a failed or interrupted commit is not
-  retried automatically (`release <commit>` retries it by hand). The next commit is handled
+  retried automatically (`release <stream> <commit>` retries it by hand). The next commit is handled
   normally.
-- **First start:** with no state, the current head is recorded as `adopted`, not built: it
-  is assumed to be released already (at cutover, TeamCity's last release).
+- **First start:** for a stream with no records, the current head is recorded as
+  `adopted`, not built: it is assumed to be released already (at cutover, TeamCity's last
+  release).
 - **Release builds started by hand** (or by anything else) make hopper skip that look and
   try again next time, rather than record a clash as a failure.
 - **Stopping:** SIGTERM or Ctrl-C stops the running step and records the commit as
@@ -429,6 +450,12 @@ steps (build 5006, published with the cache purge, 2.5 min); a commit that doesn
 recorded as failed with nothing deployed; a look while a release build ran was skipped
 without a record; a second hopper was refused; SIGTERM mid-build stopped everything within
 a second and recorded the commit as interrupted.
+
+Verified 2026-10-25 on files2, translations stream: the first look adopted the head; a test
+commit changing one German string (in a local scratch repo) was released in 8 s, its publish
+list just `de.qm` and `index_v2.json`; then the real `master` (1e543c81, the new
+`release.py`) in 9 s, after which files2's `de.qm` was byte-identical to production's, built
+by TeamCity's old pipeline.
 
 ## Requirements
 

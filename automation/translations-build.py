@@ -54,7 +54,7 @@ def main():
 
         src = out / "src"
         log("checking out %s at %s" % (branch, commit))
-        common.run("git", "clone", "-q", "--no-hardlinks", "-b", branch, common.STATE / "translations.git", src)
+        common.run("git", "clone", "-q", "--no-hardlinks", "-b", branch, common.TRANSLATIONS_MIRROR, src)
         common.run("git", "-C", src, "reset", "-q", "--hard", commit)
 
         log("running release.py (previous index: %s)" % (previous if previous.is_file() else "none"))
@@ -82,23 +82,11 @@ def main():
 
 
 def resolve_commit(settings, branch, commit):
-    """Update the mirror; the full commit for `commit` (default: the head of `branch`),
-    which must be on `branch`."""
-    mirror = common.STATE / "translations.git"
-    if not mirror.is_dir():
-        log("cloning mirror of %s" % settings["TRANSLATIONS_REPO"])
-        common.run("git", "clone", "-q", "--mirror", settings["TRANSLATIONS_REPO"], mirror)
-    common.run("git", "-C", mirror, "remote", "set-url", "origin", settings["TRANSLATIONS_REPO"])
+    """Update the Translations mirror (state/translations.git); the full commit for `commit`
+    (default: the head of `branch`), which must be on `branch`."""
     log("updating mirror")
-    common.run("git", "-C", mirror, "fetch", "-q", "--prune", "origin")
-    resolved = subprocess.run(["git", "-C", mirror, "rev-parse", "--verify", "-q",
-                               "%s^{commit}" % (commit or "refs/heads/" + branch)],
-                              stdout=subprocess.PIPE, text=True).stdout.strip()
-    if not resolved:
-        common.die("no commit %s in %s" % (commit, settings["TRANSLATIONS_REPO"]))
-    if subprocess.run(["git", "-C", mirror, "merge-base", "--is-ancestor", resolved, "refs/heads/" + branch]).returncode:
-        common.die("%s is not on %s" % (resolved, branch))
-    return resolved
+    common.update_mirror(settings["TRANSLATIONS_REPO"], common.TRANSLATIONS_MIRROR)
+    return common.resolve_on_branch(common.TRANSLATIONS_MIRROR, branch, commit)
 
 
 if __name__ == "__main__":

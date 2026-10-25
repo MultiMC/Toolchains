@@ -142,28 +142,12 @@ def release_dir(settings, build_number):
     return candidate
 
 
-def mirror(settings):
-    """The local mirror of LAUNCHER_REPO (state/launcher.git), cloned if needed and updated."""
-    path = common.STATE / "launcher.git"
-    if not path.is_dir():
-        log("cloning mirror of %s" % settings["LAUNCHER_REPO"])
-        common.run("git", "clone", "-q", "--mirror", settings["LAUNCHER_REPO"], path)
-    log("updating mirror")
-    common.run("git", "-C", path, "fetch", "-q", "--prune", "origin")
-    return path
-
-
 def resolve_commit(settings, branch, commit):
-    """The full commit for `commit` (default: the head of `branch`); it must be on `branch`."""
-    path = mirror(settings)
-    resolved = subprocess.run(["git", "-C", path, "rev-parse", "--verify", "-q",
-                               "%s^{commit}" % (commit or "refs/heads/" + branch)],
-                              stdout=subprocess.PIPE, text=True).stdout.strip()
-    if not resolved:
-        common.die("no commit %s in %s" % (commit, settings["LAUNCHER_REPO"]))
-    if subprocess.run(["git", "-C", path, "merge-base", "--is-ancestor", resolved, "refs/heads/" + branch]).returncode:
-        common.die("%s is not on %s" % (resolved, branch))
-    return resolved
+    """Update the Launcher mirror (state/launcher.git); the full commit for `commit` (default:
+    the head of `branch`), which must be on `branch`."""
+    log("updating mirror")
+    common.update_mirror(settings["LAUNCHER_REPO"], common.LAUNCHER_MIRROR)
+    return common.resolve_on_branch(common.LAUNCHER_MIRROR, branch, commit)
 
 
 def check_prerequisites(settings, platforms):
@@ -180,7 +164,7 @@ def check_prerequisites(settings, platforms):
 
 def checkout(branch, commit, src):
     """Check out `branch` at `commit` (from the mirror) in `src`, with submodules."""
-    path = common.STATE / "launcher.git"
+    path = common.LAUNCHER_MIRROR
     log("checking out %s at %s" % (branch, commit))
     git = ["git", "-C", src]
     if not (src / ".git").is_dir():
