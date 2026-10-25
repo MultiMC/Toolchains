@@ -529,8 +529,12 @@ and restarts it if it crashes. Nothing else lives outside the code.
 
     systemctl --user link ~/Toolchains/automation/systemd/hopper@.service
     systemctl --user enable --now hopper@files2
-    journalctl --user -u hopper@files2 -f
+    journalctl _SYSTEMD_USER_UNIT=hopper@files2.service -f    # as an admin
     ./hopper.py --config files2.env status
+
+hopper's output goes to the system journal, readable by an admin but not by hopper (a
+system user's uid gets no journal of its own); each run's output is also in
+`HOPPER_STATE.logs/`.
 
 The unit is linked from the checkout, so after a `git pull` that changes it:
 `systemctl --user daemon-reload` and a restart. A `git pull` that changes the scripts takes

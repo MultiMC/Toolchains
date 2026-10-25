@@ -3,12 +3,16 @@
 #
 #   systemctl --user link ~/Toolchains/automation/systemd/hopper@.service
 #   systemctl --user enable --now hopper@files2
-#   journalctl --user -u hopper@files2 -f
+#   journalctl _SYSTEMD_USER_UNIT=hopper@files2.service -f   (as an admin, see below)
 #
 # Linked, not copied: after a `git pull` that changes this file, `systemctl --user
 # daemon-reload` and restart. The user needs lingering (loginctl enable-linger hopper) so
 # the unit runs without a login. systemd only keeps hopper running; what it does, and the
 # record of it (HOPPER_STATE, its logs), is all in the scripts.
+#
+# Its output goes to the system journal: hopper's uid is a system user's (below 1000), for
+# which journald keeps no per-user journal, so hopper itself can't read it. Each run's
+# output is in HOPPER_STATE.logs/ too, which hopper can.
 
 [Unit]
 Description=hopper, the MultiMC release automation (%i.env)
