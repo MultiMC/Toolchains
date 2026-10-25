@@ -19,13 +19,13 @@ commit        a commit on LAUNCHER_BRANCH (default: its current head)
 Steps: update the local Launcher mirror (state/launcher.git), check out the branch (as a
 branch, so the commit and refs/heads/<branch> get embedded) at the commit, build PLATFORMS
 in parallel in their toolchain containers, package them like TeamCity's deploy did, run
-compat-check.py against BASELINES, write manifest.json.
+compat-check.py against the descriptions in GATE_DESCRIPTIONS, write manifest.json.
 Exit status 0 only if every build and every compatibility check passed.
 
 The build number (Launcher_VERSION_BUILD) must keep increasing for the updater. Without
 --build-number it is the next one from BUILD_COUNTER, taken (and recorded) only once
 everything that can stop the build before it starts is fine: the commit is on the branch,
-the toolchain images and the baselines are there, the source is checked out (prepared in
+the toolchain images and the gate's descriptions are there, the source is checked out (prepared in
 RELEASES_DIR/.preparing-<pid>, renamed to the build number after). A build that fails
 after that uses up its number. One release build runs at a time.
 
@@ -72,7 +72,7 @@ def main():
 
     with common.lock_release():
         # Everything that can stop the build before it starts happens before a build number
-        # is taken: the commit, the images, the baselines, the output directory, the checkout.
+        # is taken: the commit, the images, the descriptions, the output directory, the checkout.
         commit = resolve_commit(settings, branch, args.commit)
         check_prerequisites(settings, platforms)
         if args.out:
@@ -122,7 +122,7 @@ def main():
 
         build(settings, platforms, src, build_root, out, build_number)
         package(platforms, branch, build_root, out)
-        passed = gate(settings, platforms, build_root, out)
+        passed = gate(settings, platforms, src, build_root, out)
         write_manifest(settings, platforms, branch, commit, build_number, args.incremental,
                        src, build_root, out, passed)
 
@@ -167,15 +167,15 @@ def resolve_commit(settings, branch, commit):
 
 
 def check_prerequisites(settings, platforms):
-    """The toolchain images and the baselines the compatibility gate compares against."""
+    """The toolchain images, and the descriptions the compatibility gate checks against."""
     for p in platforms:
         image = settings[p.image_setting]
         if subprocess.run(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL,
                           stderr=subprocess.DEVNULL).returncode:
             common.die("toolchain image %s (%s) isn't there; build or load it (../containers/)" % (image, p.name))
-        baseline = Path(settings["BASELINES"]) / p.package("develop")
-        if not baseline.is_file():
-            common.die("baseline %s is missing" % baseline)
+        description = Path(settings["GATE_DESCRIPTIONS"]) / ("%s.toml" % p.name)
+        if not description.is_file():
+            common.die("the gate's description %s is missing" % description)
 
 
 def checkout(branch, commit, src):
@@ -254,23 +254,25 @@ def write_zip(root, top, target):
                 z.write(path, path.relative_to(root))
 
 
-def gate(settings, platforms, build_root, out):
-    """Run compat-check.py for each platform against the shipped build; {platform: passed}."""
-    baselines = Path(settings["BASELINES"])
-    log("compatibility checks against %s" % baselines.name)
-    # The baselines embed the production URLs (the defaults); a build for another system
-    # (e.g. files2.env) is checked against the baseline URLs mapped to its own.
-    url_map = []
-    for key in ("UPDATER_BASE", "NOTIFICATION_URL"):
-        if settings[key] != settings.defaults[key]:
-            url_map += ["--url-map", "%s=%s" % (settings.defaults[key], settings[key])]
+def gate(settings, platforms, src, build_root, out):
+    """Check each platform's build against its description (compat-check.py); {platform: passed}."""
+    descriptions = Path(settings["GATE_DESCRIPTIONS"])
+    log("compatibility checks against %s" % descriptions)
+    # URLs in the descriptions can be ${SETTING}: each gets this build's value, if the
+    # Launcher being built can take it (its CMakeLists.txt has Launcher_<setting>);
+    # otherwise the production default, which such a Launcher has hard-coded.
+    cmake = (src / "CMakeLists.txt").read_text()
+    values = []
+    for key in ("UPDATER_BASE", "NOTIFICATION_URL", "TRANSLATIONS_BASE_URL"):
+        value = settings[key] if ("Launcher_" + key) in cmake else settings.defaults[key]
+        values += ["--set", "%s=%s" % (key, value)]
     passed = {}
     for p in platforms:
         tree = build_root / p.name / "install" / p.bundle
-        baseline = baselines / p.package("develop")
         with open(out / ("compat-%s.txt" % p.name), "w") as report:
-            result = subprocess.run([sys.executable, common.AUTOMATION / "compat-check.py", p.name, tree, baseline,
-                                     "--json", out / ("compat-%s.json" % p.name)] + url_map, stdout=report)
+            result = subprocess.run([sys.executable, common.AUTOMATION / "compat-check.py", "check", p.name, tree,
+                                     descriptions / ("%s.toml" % p.name),
+                                     "--json", out / ("compat-%s.json" % p.name)] + values, stdout=report)
         passed[p.name] = result.returncode == 0
         for line in (out / ("compat-%s.txt" % p.name)).read_text().splitlines():
             print("    " + line, file=sys.stderr)

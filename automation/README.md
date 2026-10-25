@@ -32,7 +32,7 @@ automation measures up:
 - **Inspectable results:** a release directory keeps the source, build trees, logs,
   packages, deploy archives, gate reports and `manifest.json`.
 - **Fails closed:** a failed build or test stops the release; the gate refuses anything
-  that differs from the shipped builds; `deploy.py` refuses releases that aren't
+  its description (`expectations/`) doesn't allow; `deploy.py` refuses releases that aren't
   releasable, were built for another system, or aren't newer; `publish.py` refuses when
   the live tree changed underneath it; settings files with unknown keys are refused.
 - **Versioned locally:** the local files trees are btrfs subvolumes, snapshotted before
@@ -48,15 +48,19 @@ run inside the containers are plain bash: the Windows image has no Python.
 ## Settings
 
 Every setting (repo, branch, platforms, images, clean/incremental, build type, jobs, macOS
-deployment target, extra CMake arguments, the URLs compiled into the Launcher, baselines,
+deployment target, extra CMake arguments, the URLs compiled into the Launcher, the gate's descriptions,
 the deployer image, the files trees, the bucket) is listed with its default in
 `defaults.env`. Every script takes `--config FILE`, a file of the same `KEY=value` form that
 may only set settings from `defaults.env`; environment variables override both. Values may
 be quoted and may use `$TOOLCHAINS`, `$HOME` and settings defined before them.
 `common.load_settings` reads them; every setting is also passed into the build containers.
 
-Of the URLs only `UPDATER_BASE` and `NOTIFICATION_URL` take effect: the Launcher's
-`CMakeLists.txt` hard-codes the subreddit, Discord and bug tracker URLs with plain `set()`.
+Of the URLs only `UPDATER_BASE`, `NOTIFICATION_URL` and `TRANSLATIONS_BASE_URL` take
+effect: the Launcher's `CMakeLists.txt` hard-codes the subreddit, Discord and bug tracker
+URLs with plain `set()`. `TRANSLATIONS_BASE_URL` needs a Launcher with the
+`Launcher_TRANSLATIONS_BASE_URL` option (branch `translations-url`, 2026-10-24); older ones
+have the production URL hard-coded and ignore it. The compatibility gate only maps a URL
+setting to the build's own value when the Launcher being built has the option.
 
 ## Building one platform
 
@@ -93,7 +97,7 @@ elsewhere; DIR must be new or empty.
 3. Packages them like TeamCity's deploy did: `packages/mmc-<branch>-<platform>.tar.gz`
    (`.zip` for win32), same layout as the shipped packages; and `deploy/<platform>.tar.gz`,
    the bundle with its permissions, for `deploy.py`.
-4. Runs `compat-check.py` for each platform against the shipped builds (`BASELINES`).
+4. Runs `compat-check.py` for each platform against its description (`GATE_DESCRIPTIONS`).
 5. Writes `manifest.json`: commit, build number, version name (`major.minor.hotfix` from
    the Launcher's `CMakeLists.txt`), mode, `UPDATER_BASE`, package hashes, gate results,
    `releasable`.
@@ -106,7 +110,7 @@ build on a 32-core machine. Output files belong to the user running it.
 The build number must keep increasing for the updater. `BUILD_COUNTER` is a file holding
 the last number used; without `--build-number`, `release-build.py` takes the next one and
 records it, but only once nothing can stop the build before it starts: the commit is on the
-branch, the toolchain images and the baselines are there, and the source is checked out
+branch, the toolchain images and the gate's descriptions are there, and the source is checked out
 (prepared in `RELEASES_DIR/.preparing-<pid>`, renamed to the build number after). A typo in
 a commit, a missing image or a failed checkout leaves the counter alone; a build that fails
 after that uses up its number, so no number is handed out twice. `--build-number N` (test builds, such as 9999) leaves the counter alone.
@@ -170,24 +174,40 @@ files identical.
 
 ## Compatibility gate (`compat-check.py`)
 
-    compat-check.py <platform> <install tree> <baseline package> [--json out.json] [--url-map OLD=NEW]...
+    compat-check.py check <platform> <install tree> <description.toml> [--json out.json] [--set NAME=VALUE]...
+    compat-check.py describe <platform> <install tree or package> [--source NAME]
 
-| Platform | Checks |
-|----------|--------|
-| all | same file list as the baseline (new or missing files fail until the baseline is updated on purpose); every URL embedded in the baseline's main binary is still there |
-| lin64, lin32 | ELF architecture; no system library needed that the baseline didn't need; no newer `GLIBC_`/`GLIBCXX_`/`CXXABI_`/`GCC_` symbol versions (baseline: 2.14 / 2.4, 3.4.21) |
-| win32 | i386 only; PE OS/subsystem version not above 4.0 (XP); no new system DLL imports; bundled third-party DLLs byte-identical to the baseline |
-| osx64-5.15.2 | x86_64 only; minimum macOS not above 10.13; nothing linked from outside the bundle, `/usr/lib`, `/System` |
+The gate checks each build against a description of what it must be:
+`expectations/<platform>.toml`, edited by hand. When the Launcher changes on purpose (a new
+file, a new system library, a URL it no longer embeds), the description is changed with it,
+with a comment saying why; so every change to the gate's conditions is deliberate and
+reviewed. `describe` writes a description from an existing build; it was used once
+(2026-10-25), on the builds TeamCity shipped, and is there to start over from.
 
-`--url-map`: the baselines embed the production URLs. A build for another system (such as
-files2) is checked against the baseline URLs with the defaults of `UPDATER_BASE` and
-`NOTIFICATION_URL` replaced by its own; `release-build.py` passes these when they differ.
+| Section | Checks |
+|---------|--------|
+| `[files]` | exactly the listed files in the bundle |
+| `[urls]` | the listed URLs are embedded in the main binary; `${NAME}` is a setting (`UPDATER_BASE`, `NOTIFICATION_URL`, `TRANSLATIONS_BASE_URL`) |
+| `[elf]` (lin64, lin32) | ELF architecture; only the listed system libraries; no symbol versions newer than listed (`GLIBC_2.14`, `GLIBCXX_3.4.21`, ...) |
+| `[pe]` (win32) | i386 only; PE OS/subsystem version at most 4.0 (XP); only the listed system DLLs; the bundled toolchain files (Qt, MinGW runtime, OpenSSL, zlib) byte-identical (SHA-256s) |
+| `[macho]` (osx64-5.15.2) | x86_64 only; minimum macOS at most 10.13; nothing linked from outside the bundle, `/usr/lib`, `/System` |
 
-Verified 2026-10-21: all four builds of develop 2a684511 pass; deliberately broken copies
-fail (extra file, GLIBC_2.34 library, subsystem 6.0, modified Qt5Core.dll, minimum macOS
-10.15). The URL check was added after an early macOS cross build turned out to lack the
-updater and notification URLs (never deployed; it would have cut macOS users off from
-updates); it fails that build.
+`release-build.py` passes each URL setting with `--set`: the build's own value if the
+Launcher being built has the matching `Launcher_<setting>` CMake option, otherwise the
+production default (such a Launcher has it hard-coded). So files2 builds are checked
+against files2's URLs.
+
+Edits so far: `${TRANSLATIONS_BASE_URL}index_v2.json` is no longer required (2026-10-25):
+with `Launcher_TRANSLATIONS_BASE_URL` (branch `translations-url`) the Launcher builds the
+index URL at runtime.
+
+Verified 2026-10-25: develop 2a684511 passes on all four platforms, with production's and
+files2's settings; an extra file and a modified `Qt5Core.dll` fail; the `translations-url`
+branch failed on exactly the index URL until that requirement was removed. (Earlier, with
+the gate comparing against the shipped binaries, deliberately broken copies failed too:
+GLIBC_2.34 library, subsystem 6.0, minimum macOS 10.15. The URL check was added after an
+early macOS cross build turned out to lack the updater and notification URLs; never
+deployed, it would have cut macOS users off from updates.)
 
 Needs `objdump` and `llvm-otool` on the host.
 
