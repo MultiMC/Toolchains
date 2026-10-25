@@ -21,6 +21,8 @@ the files tree, publish to the live tree and a bucket. TeamCity still does the r
 | `common.py` | Shared by the scripts: settings, platforms, the container command, locking |
 | `defaults.env` | Every setting, with its default |
 | `files2.env` | Settings for the files2 test system |
+| `production.env` | Settings for production: none, `defaults.env` as it is; there so every setup has a name |
+| `systemd/hopper@.service` | The systemd user unit that keeps hopper running on mikoshi, one instance per settings file |
 | `state/` | Not in git: the Launcher repo mirror, the incremental work trees, the files trees |
 
 ## Principles
@@ -514,9 +516,26 @@ plain state files (see `UPDATER.md` next to the Toolchains repo).
   `interrupted`; an entry still `running` when hopper starts (after a crash or kill) is
   recorded as `interrupted` too. One hopper per state file.
 
-Something like systemd only has to keep `./hopper.py watch` running; a unit needs little
-more than `ExecStart=<path>/hopper.py --config <file> watch`, `User=` and
-`Restart=on-failure`. Nothing else lives outside the code.
+### On mikoshi (`systemd/hopper@.service`)
+
+hopper runs on mikoshi, which stays on, as the `hopper` user (home `/srv/hopper`, the
+checkout in `~/Toolchains`, its secrets in `~/.config/multimc-deploy/`, rootless podman,
+not in the docker group). Its only access to deth001 is the key tied to `hopper-ssh`.
+systemd only keeps `hopper.py watch` running, as a user unit with one instance per
+settings file: `hopper@files2` (`files2.env`), at cutover `hopper@production`
+(`production.env`). The unit sets `CONTAINER_ENGINE=podman` and a low CPU and IO priority
+(the containers inherit it), stops hopper with SIGTERM alone so it can stop its own step,
+and restarts it if it crashes. Nothing else lives outside the code.
+
+    systemctl --user link ~/Toolchains/automation/systemd/hopper@.service
+    systemctl --user enable --now hopper@files2
+    journalctl --user -u hopper@files2 -f
+    ./hopper.py --config files2.env status
+
+The unit is linked from the checkout, so after a `git pull` that changes it:
+`systemctl --user daemon-reload` and a restart. A `git pull` that changes the scripts takes
+effect at hopper's next step (each step is a new process); `hopper.py` itself, after a
+restart.
 
 Verified 2026-10-24 on files2: first start adopted the head; a new commit went through all
 steps (build 5006, published with the cache purge, 2.5 min); a commit that doesn't exist was

@@ -1,0 +1,40 @@
+# hopper as a service on mikoshi: a systemd user unit of the hopper user, one instance per
+# settings file, e.g. hopper@files2 runs `hopper.py --config files2.env watch`.
+#
+#   systemctl --user link ~/Toolchains/automation/systemd/hopper@.service
+#   systemctl --user enable --now hopper@files2
+#   journalctl --user -u hopper@files2 -f
+#
+# Linked, not copied: after a `git pull` that changes this file, `systemctl --user
+# daemon-reload` and restart. The user needs lingering (loginctl enable-linger hopper) so
+# the unit runs without a login. systemd only keeps hopper running; what it does, and the
+# record of it (HOPPER_STATE, its logs), is all in the scripts.
+
+[Unit]
+Description=hopper, the MultiMC release automation (%i.env)
+Documentation=file://%h/Toolchains/automation/README.md
+
+[Service]
+WorkingDirectory=%h/Toolchains/automation
+ExecStart=%h/Toolchains/automation/hopper.py --config %i.env watch
+# mikoshi runs the containers with rootless podman (docker there is root's, for other services)
+Environment=CONTAINER_ENGINE=podman
+Environment=PYTHONUNBUFFERED=1
+
+# Builds take whatever the machine's other services leave over. Containers inherit this:
+# podman moves them to their own cgroups, so a CPUWeight here wouldn't reach them.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+# hopper stops its running step itself on SIGTERM (records it as interrupted); that takes
+# up to two minutes when a build has to stop its containers.
+KillMode=mixed
+TimeoutStopSec=180
+
+# A crash of hopper itself. Failed builds don't stop it; they're recorded and skipped.
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target
