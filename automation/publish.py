@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""Publish a release that deploy.py put into the local files tree (FILES_ROOT).
+"""Publish the local files tree (FILES_ROOT): everything that changed since the last publish.
 
-    publish.py [--config FILE] [--dry-run] [--no-bucket] [--no-purge] <release dir>
+    publish.py [--config FILE] [--dry-run] [--no-bucket] [--no-purge]
 
-Works only from the release's publish.json, which deploy.py wrote: every file the deploy
-added, changed or removed in the tree, with its SHA-256 before and after. Any kind of
-release (Launcher builds, translations) is published the same way.
+What was last published is a snapshot of the tree, named in FILES_ROOT.published. The
+difference between it and the tree now is what gets published, whatever deploys made it
+(Launcher builds, translations, Patreon credits; one or several); a successful publish then
+records a new snapshot. Restoring an earlier snapshot and publishing puts the live site
+back to it.
 
-1. Checks the local tree: every listed file must still be as the deploy left it (another
-   deploy since then would make this release's list wrong).
-2. With FILES_ORIGIN set (a live tree other jobs also write to, like deth001's): checks
-   that every listed file on the live tree is either its "before" or its "after" version,
-   so nothing changed there that this release doesn't know about (and publishing again,
+1. With FILES_ORIGIN set (a live tree other jobs also write to, like deth001's): checks
+   that every changed file on the live tree is either its published or its new version,
+   so nothing changed there that this publish doesn't know about (and publishing again,
    or after an interruption, still works). Then copies the files there, as
    FILES_ORIGIN_OWNER with mode FILES_ORIGIN_MODE, each replaced atomically, in an order
    that never lets clients see an index whose files aren't there yet: store files,
    translation files, version files, indexes, downloads, anything else; removals last.
-3. The bucket (BUCKET_TARGET, an rclone remote:path; the rclone config with its key is
+2. The bucket (BUCKET_TARGET, an rclone remote:path; the rclone config with its key is
    BUCKET_CONFIG, outside this repo) gets the same changes, plus the download symlinks
    pointing at changed packages (the bucket has copies of them). With FILES_ORIGIN empty,
    the whole tree is synced to the bucket instead.
-4. Purges every changed or removed file (and those symlinks) from Cloudflare's cache at
+3. Purges every changed or removed file (and those symlinks) from Cloudflare's cache at
    PUBLIC_URL. Needs CLOUDFLARE_ZONE_ID and an API token with Zone / Cache Purge
    permission in the file CLOUDFLARE_TOKEN (outside this repo). If it fails, publishing
-   again retries it.
+   again retries it (nothing is recorded as published until everything succeeded).
 
 rclone transfers and compares many files at once (32); it compares by size and MD5, so
 objects uploaded earlier aren't uploaded again.
@@ -65,7 +65,6 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-bucket", action="store_true")
     parser.add_argument("--no-purge", action="store_true")
-    parser.add_argument("release", type=Path)
     args = parser.parse_args()
 
     settings = common.load_settings(args.config)
@@ -80,20 +79,17 @@ def main():
         common.die("can't purge Cloudflare's cache: PUBLIC_URL, CLOUDFLARE_ZONE_ID and the token "
                    "file CLOUDFLARE_TOKEN (%s) are needed (or use --no-purge)" % settings["CLOUDFLARE_TOKEN"])
 
-    release = args.release.resolve()
-    common.read_release(release)
-    changes = common.read_publish_list(release)
     origin = settings["FILES_ORIGIN"]
     root = Path(settings["FILES_ROOT"])
-    log("%s%s: %d files -> %s" % ("(dry run) " if args.dry_run else "", release.name, len(changes),
-                                  origin or settings["BUCKET_TARGET"]))
-
-    if not changes:
-        log("nothing to publish: the deploy changed nothing in the tree")
-        return
-
     with common.lock_files(settings):
-        check_local(root, changes)
+        published = common.published_snapshot(settings)
+        changes = common.tree_changes(published, root)
+        log("%s%d files changed since %s -> %s" % ("(dry run) " if args.dry_run else "", len(changes),
+                                                   published.name, origin or settings["BUCKET_TARGET"]))
+        if not changes:
+            log("nothing to publish")
+            return
+
         stages = in_stages(changes)
         removed = sorted(path for path, change in changes.items() if change["new"] is None)
         links = links_to(root / "downloads", [p for _, paths in stages for p in paths])
@@ -114,8 +110,12 @@ def main():
         if purge:
             purge_cache(settings, sorted(changes) + links, args.dry_run)
 
-    if not args.dry_run:
-        common.remove_pending(settings, release=release)
+        if not args.dry_run:
+            published = common.mark_published(settings, "published", about="%d files published" % len(changes))
+            log("recorded as published: %s" % published.name)
+            removed = common.cleanup_snapshots(settings)
+            if removed:
+                log("removed %d old snapshots" % len(removed))
     skipped = [name for name, done in (("bucket", bucket), ("purge", purge)) if not done]
     log("done" + (", skipped: " + " ".join(skipped) if skipped else ""))
 
@@ -136,16 +136,6 @@ def links_to(directory, paths):
     names = {os.path.basename(p) for p in paths if p.startswith(directory.name + "/")}
     return sorted("%s/%s" % (directory.name, link.name) for link in directory.iterdir()
                   if link.is_symlink() and os.path.basename(os.readlink(link)) in names)
-
-
-def check_local(root, changes):
-    """Every listed file must still be as the deploy left it."""
-    for path, change in sorted(changes.items()):
-        full = root / path
-        now = common.sha256_file(full) if full.is_file() else None
-        if now != change["new"]:
-            common.die("%s changed in the local tree since this release was deployed (another deploy?); "
-                       "publish that one instead, or restore and deploy again" % path)
 
 
 def live_hashes(settings, paths):
@@ -169,12 +159,12 @@ def live_hashes(settings, paths):
 
 
 def check_live(settings, changes):
-    """Every listed file on the live tree must be its before or its after version."""
+    """Every changed file on the live tree must be its published or its new version."""
     live = live_hashes(settings, sorted(changes))
     unexpected = [path for path, change in sorted(changes.items())
                   if live.get(path, "missing from the answer") not in (change["old"], change["new"])]
     if unexpected:
-        common.die("the live tree changed in ways this release doesn't know about (another deploy?): %s; "
+        common.die("the live tree changed in ways this publish doesn't know about (another deploy?): %s; "
                    "run files-pull.py and deploy again" % ", ".join(unexpected[:5]))
     done = sum(1 for path, change in changes.items() if live[path] == change["new"])
     if done:
@@ -214,7 +204,7 @@ def copy(settings, what, paths, dry_run, *options):
 
 def rclone(settings, *args, **kwargs):
     """Run rclone in the deployer image, with FILES_ROOT at /deploy/files (read-only)."""
-    common.run("docker", "run", "--rm", "--init", "-i", "-u", common.user(), "-e", "HOME=/tmp",
+    common.run(*common.container_run(settings), "-i",
                "-v", "%s:/deploy/files:ro" % settings["FILES_ROOT"],
                "-v", "%s:/private/rclone.conf:ro" % settings["BUCKET_CONFIG"],
                settings["IMAGE_DEPLOYER"], "rclone", "--config", "/private/rclone.conf",

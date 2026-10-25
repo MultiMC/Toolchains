@@ -6,10 +6,9 @@ made by patrons-update.py.
     deploy.py [--config FILE] <release dir>
 
 Before changing the tree it takes a read-only snapshot of it (files-snapshots.py lists and
-restores them; a tree that isn't a btrfs subvolume is refused). Afterwards it compares the
-tree with that snapshot and writes what changed to <release>/publish.json, which is what
-publish.py publishes. Nothing is published here; the tree stays local. Refuses a release
-that isn't releasable.
+restores them; a tree that isn't a btrfs subvolume is refused). Nothing is published here;
+the tree stays local: publish.py publishes everything that changed since the last publish.
+Refuses a release that isn't releasable.
 
 Launcher builds: does what TeamCity's deploy steps did on deth001, with the same repoman
 (IMAGE_DEPLOYER), as the calling user, without network: for each platform,
@@ -81,8 +80,7 @@ def deploy_launcher(settings, release, manifest, root):
             if build <= last:
                 common.die("%s/%s already has build %d; %d is not newer" % (p.name, branch, last, build))
 
-        common.check_no_pending(settings)
-        snapshot = common.snapshot_files(settings, "before-deploy-%d" % build)
+        snapshot = common.snapshot_files(settings, "before-deploy-%d" % build, kind="deploy", about=release.name)
         log("snapshot of the tree as it was: %s" % snapshot.name)
 
         with tempfile.TemporaryDirectory(dir=release, prefix=".deploy.") as work:
@@ -92,7 +90,7 @@ def deploy_launcher(settings, release, manifest, root):
                     tar.extractall(bundle_dir, filter="data")
                 package = p.package(branch)
                 log("%s: pushing version %d to %s, then %s to downloads/" % (p.name, build, branch, package))
-                repoman = ["docker", "run", "--rm", "--init", "--network", "none", "-u", common.user(), "-e", "HOME=/tmp",
+                repoman = common.container_run(settings) + ["--network", "none",
                            "-v", "%s:/deploy/files" % root, "-v", "%s:/bundle:ro" % bundle_dir,
                            "-v", "%s:/packages:ro" % (release / "packages"),
                            "-w", "/deploy/files", settings["IMAGE_DEPLOYER"], "repoman"]
@@ -100,10 +98,8 @@ def deploy_launcher(settings, release, manifest, root):
                 common.run(*repoman, "push-file", "downloads", "/packages/" + package)
 
         changes = common.tree_changes(snapshot, root)
-        common.write_publish_list(settings, release, snapshot, changes)
 
-    log("deployed to %s (not published); %d files to publish, see %s"
-        % (root, len(changes), release / "publish.json"))
+    log("deployed to %s (not published): %d files changed" % (root, len(changes)))
 
 
 
@@ -122,8 +118,8 @@ def deploy_translations(settings, release, manifest, root):
         if missing:
             common.die("the new index names files that are neither in the release nor in the tree: %s"
                        % ", ".join(missing))
-        common.check_no_pending(settings)
-        snapshot = common.snapshot_files(settings, "before-translations-%s" % manifest["commit"][:10])
+        snapshot = common.snapshot_files(settings, "before-translations-%s" % manifest["commit"][:10],
+                                          kind="deploy", about=release.name)
         log("snapshot of the tree as it was: %s" % snapshot.name)
 
         target.mkdir(exist_ok=True)
@@ -135,24 +131,19 @@ def deploy_translations(settings, release, manifest, root):
         log("%d files copied, %d removed" % (len(manifest["files"]), len(removed)))
 
         changes = common.tree_changes(snapshot, root)
-        common.write_publish_list(settings, release, snapshot, changes)
 
-    log("deployed to %s (not published); %d files to publish, see %s"
-        % (root, len(changes), release / "publish.json"))
+    log("deployed to %s (not published): %d files changed" % (root, len(changes)))
 
 
 
 def deploy_patrons(settings, release, root):
     with common.lock_files(settings):
-        common.check_no_pending(settings)
-        snapshot = common.snapshot_files(settings, "before-patrons")
+        snapshot = common.snapshot_files(settings, "before-patrons", kind="deploy", about=release.name)
         log("snapshot of the tree as it was: %s" % snapshot.name)
         shutil.copyfile(release / "patrons.txt", root / "patrons.txt")
         changes = common.tree_changes(snapshot, root)
-        common.write_publish_list(settings, release, snapshot, changes)
 
-    log("deployed to %s (not published); %d files to publish, see %s"
-        % (root, len(changes), release / "publish.json"))
+    log("deployed to %s (not published): %d files changed" % (root, len(changes)))
 
 
 if __name__ == "__main__":

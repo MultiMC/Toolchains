@@ -58,8 +58,8 @@ def main():
         common.run("git", "-C", src, "reset", "-q", "--hard", commit)
 
         log("running release.py (previous index: %s)" % (previous if previous.is_file() else "none"))
-        command = ["docker", "run", "--rm", "--init", "--network", "none", "-u", common.user(),
-                   "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
+        command = common.container_run(settings) + ["--network", "none",
+                   "-e", "PYTHONDONTWRITEBYTECODE=1",
                    "-v", "%s:/src:ro" % src, "-v", "%s:/out" % out, "-w", "/src"]
         if previous.is_file():
             command += ["-v", "%s:/previous/index_v2.json:ro" % previous]

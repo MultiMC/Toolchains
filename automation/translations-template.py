@@ -62,8 +62,8 @@ def main():
         common.run("git", "-C", repo / "src", "submodule", "-q", "update", "--init", "--recursive")
 
         log("running update.py")
-        result = subprocess.run(["docker", "run", "--rm", "--init", "--network", "none", "-u", common.user(),
-                                 "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
+        result = subprocess.run(common.container_run(settings) + ["--network", "none",
+                                 "-e", "PYTHONDONTWRITEBYTECODE=1",
                                  "-v", "%s:/work" % repo, "-w", "/work", settings["IMAGE_TRANSLATIONS"],
                                  "python3", "update.py"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         (work / "update.log").write_text(result.stdout)

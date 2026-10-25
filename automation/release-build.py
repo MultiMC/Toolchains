@@ -154,8 +154,7 @@ def check_prerequisites(settings, platforms):
     """The toolchain images, and the descriptions the compatibility gate checks against."""
     for p in platforms:
         image = settings[p.image_setting]
-        if subprocess.run(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL,
-                          stderr=subprocess.DEVNULL).returncode:
+        if not common.image_exists(settings, image):
             common.die("toolchain image %s (%s) isn't there; build or load it (../containers/)" % (image, p.name))
         description = Path(settings["GATE_DESCRIPTIONS"]) / ("%s.toml" % p.name)
         if not description.is_file():

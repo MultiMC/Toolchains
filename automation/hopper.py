@@ -279,7 +279,7 @@ class Run:
 
         if self.step("deploy", "deploy.py", release, stdout=self.logf)[0]:
             return self.finish("failed", "deploy failed, nothing published")
-        if self.step("publish", "publish.py", release, stdout=self.logf)[0]:
+        if self.step("publish", "publish.py", stdout=self.logf)[0]:
             return self.finish("failed", "publish failed")
         what = "build %s" % self.entry["build"] if self.entry.get("build") else os.path.basename(release)
         self.finish("published", "%s published" % what)

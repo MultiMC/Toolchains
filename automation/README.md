@@ -12,8 +12,8 @@ the files tree, publish to the live tree and a bucket. TeamCity still does the r
 | `translations-build.py` | Builds a translations release (the Translations repo's `release.py`, in its image) |
 | `translations-template.py` | Updates the translations template from the Launcher source and pushes it |
 | `patrons-update.py` | Makes the Patreon credits (`patrons.txt`) as a release |
-| `deploy.py` | Deploys a release (Launcher build or translations) into the local files tree, writes its publish list |
-| `publish.py` | Publishes a release's publish list to the live tree and the bucket, purges Cloudflare's cache |
+| `deploy.py` | Deploys a release (Launcher build, translations, Patreon credits) into the local files tree |
+| `publish.py` | Publishes everything that changed in the tree since the last publish to the live tree and the bucket, purges Cloudflare's cache |
 | `files-pull.py` | Makes the local files tree a copy of the live one |
 | `hopper.py` | hopper: watches the branch and moves each new commit through build, deploy and publish; later also tags and the UI backend |
 | `files-snapshots.py` | Lists, takes, restores and removes snapshots of the local files tree |
@@ -64,6 +64,12 @@ URLs with plain `set()`. `TRANSLATIONS_BASE_URL` needs a Launcher with the
 `Launcher_TRANSLATIONS_BASE_URL` option (branch `translations-url`, 2026-10-24); older ones
 have the production URL hard-coded and ignore it. The compatibility gate only maps a URL
 setting to the build's own value when the Launcher being built has the option.
+
+**Container engine:** `CONTAINER_ENGINE` is `docker` (default; containers run as the
+calling user with `-u`) or `podman` (rootless, with `--userns=keep-id`, so the calling user
+is the same user inside and owns what the containers write). Everything that starts a
+container goes through `common.container_run`. mikoshi uses Podman: its automation user
+has no Docker access, since the `docker` group is equivalent to root.
 
 ## Building one platform
 
@@ -218,27 +224,16 @@ Needs `objdump` and `llvm-otool` on the host.
 
     ./files-pull.py [--dry-run]                         # FILES_ROOT := exact copy of FILES_ORIGIN (deth001)
     ./deploy.py <release dir>                           # deploy a release into FILES_ROOT
-    ./publish.py [--dry-run] [--no-bucket] [--no-purge] <release dir>    # publish it
+    ./publish.py [--dry-run] [--no-bucket] [--no-purge] # publish what changed since the last publish
 
-Two kinds of release go through it: Launcher builds (`release-build.py`) and translations
-(`translations-build.py`).
+Three kinds of release go into the tree: Launcher builds (`release-build.py`), translations
+(`translations-build.py`) and the Patreon credits (`patrons-update.py`). Deploying changes
+the local tree; publishing makes the live site match it.
 
 ### `deploy.py`
 
-Snapshots the tree, changes it, then compares it with the snapshot and writes every file
-it added, changed or removed, with its SHA-256 before and after, to
-`<release>/publish.json`: the publish list, the only thing `publish.py` works from. (A
-snapshot keeps inode numbers, so only files whose inode, size or time differ are hashed;
-a deploy takes a few seconds.) The tree is locked while it runs.
-
-**Pending deploys:** each publish list only has what its own deploy changed, so a deploy
-that was never published would otherwise be skipped silently by the next one (it
-happened on 2026-10-25: a Patreon list deployed but not published, then the same list
-again, whose deploy changed nothing). So `FILES_ROOT.pending` lists the releases deployed
-but not published, and while one is listed the next deploy is refused, naming it: publish
-it, or undo it with `files-snapshots.py restore` of its snapshot. `publish.py` removes its
-release when done; a restore removes the deploys it undid; `files-pull.py` (which
-overwrites the tree) clears the list.
+Snapshots the tree (to undo it: `files-snapshots.py restore`), then changes it. Nothing
+is published; the tree is locked while it runs.
 
 **Launcher builds:** does what TeamCity's deploy steps did on deth001, with the same
 repoman (`IMAGE_DEPLOYER`, `../containers/deployer`), as the calling user, without
@@ -247,10 +242,7 @@ network: for each platform `repoman -c update push <platform> <branch> <build> <
 `index.json`, copies files the store doesn't have yet into `files/<md5>-<name>`) and
 `repoman push-file downloads <package>`. Refuses a build made for another system (the
 manifest's `UPDATER_BASE` must be the tree's `update/config.json` `base_url`) and one whose
-build number isn't higher than every version already in the channel. A build's list has
-only what really changed: on files2, build 5013 had 26 files (14 new store files, 4
-version files, 4 indexes, 4 downloads); before the publish list, every publish handled all
-the release's files (~100 URLs to purge).
+build number isn't higher than every version already in the channel.
 
 repoman prints `Failed to load channel "main"` for every platform: `channels.json` lists a
 `main` channel that has no directories. Harmless; TeamCity's deploys did the same.
@@ -258,6 +250,8 @@ repoman prints `Failed to load channel "main"` for every platform: `channels.jso
 **Translations:** `translations/` becomes the release's files, plus the files of languages
 that kept their previous release (still named in the new index); everything else in there
 is removed, so nothing piles up.
+
+**Patreon credits:** `patrons.txt` replaces the tree's.
 
 Verified 2026-10-23: Launcher build 9999 of 2a684511 deployed into a fresh copy: four
 version files with the same structure, keys, URLs and permissions as TeamCity's last ones
@@ -267,26 +261,31 @@ the right version name (TeamCity's VM builds were named `0.0.0`).
 
 ### `publish.py`
 
-Works only from the release's `publish.json`:
+Publishes the tree, not a release: what was last published is a snapshot, named in
+`FILES_ROOT.published`, and the difference between it and the tree now is what goes out,
+whatever deploys made it (one or several), with each file's SHA-256 then and now. (A
+snapshot keeps inode numbers, so only files whose inode, size or time differ are hashed.)
+A successful publish records a new snapshot as published; `files-pull.py` records the
+pulled tree, which equals the live one. Restoring an earlier snapshot and publishing puts
+the live site back to it.
 
-1. **The local tree** must still be as the deploy left it (every listed file has its
-   "after" hash); another deploy since then stops it.
-2. **The live tree** (`FILES_ORIGIN`): every listed file must be either its "before" or its
-   "after" version. Anything else means someone else changed it, and it stops (pull and
-   deploy again). Accepting "after" keeps publishing again, or after an interruption,
-   working: already published files are reported and skipped.
-3. **Copies** the files there (as `FILES_ORIGIN_OWNER`, mode `FILES_ORIGIN_MODE`, each
+1. **The live tree** (`FILES_ORIGIN`): every changed file must be either its published or
+   its new version. Anything else means someone else changed it, and it stops (pull and
+   deploy again). Accepting the new version keeps publishing again, or after an
+   interruption, working: already published files are reported and skipped.
+2. **Copies** the files there (as `FILES_ORIGIN_OWNER`, mode `FILES_ORIGIN_MODE`, each
    replaced atomically) in an order that never lets clients see an index whose files
    aren't there yet: store files, translation files, version files, indexes, downloads,
    anything else; removals last.
-4. **The bucket** (`BUCKET_TARGET`, an rclone `remote:path`; the rclone config with its key
+3. **The bucket** (`BUCKET_TARGET`, an rclone `remote:path`; the rclone config with its key
    is `BUCKET_CONFIG`, outside this repo) gets the same changes and removals, plus the
    download symlinks pointing at changed packages: the bucket has copies of those
    (`mmc-develop-osx64.tar.gz` -> `mmc-develop-osx64-5.15.2.tar.gz`).
-5. **Purges** every changed or removed file (and those symlinks) from Cloudflare's cache at
+4. **Purges** every changed or removed file (and those symlinks) from Cloudflare's cache at
    `PUBLIC_URL`. It needs `CLOUDFLARE_ZONE_ID` and an API token with Zone / Cache Purge
    permission in the file `CLOUDFLARE_TOKEN` (outside this repo). Up to 100 URLs per
-   request (Free plan). If it fails, publishing again retries it. Files changed by hand
+   request (Free plan). If it fails, publishing again retries it (nothing is recorded as
+   published until everything succeeded). Files changed by hand
    (e.g. a `channels.json`) aren't purged by this; purge them in the dashboard.
 
 Without the bucket or purge settings `publish.py` refuses to start; `--no-bucket` and
@@ -319,13 +318,18 @@ Verified:
 - 2026-10-24, the full production path on files2 (deth001 + R2 + purge): builds 5011 (with
   s3cmd) and 5012 (with rclone, through hopper); afterwards the bucket matched the local
   tree exactly (`rclone check`, 9774 files). Not yet run for files.multimc.org.
-- 2026-10-25, the publish list on files2: build 5013 (through hopper, 26 files); afterwards
-  deth001 and the bucket matched the local tree; publishing again found everything already
-  published; a local file changed after the deploy, and a live download changed by hand,
-  each stopped it before anything was copied. Then the first translations release (the
+- 2026-10-25, on files2: build 5013 (through hopper, 26 files: only what changed; before,
+  every publish handled all the release's ~100 files); afterwards deth001 and the bucket
+  matched the local tree; publishing again found everything already published; a live
+  download changed by hand stopped it before anything was copied. Then the first
+  translations release (the
   staged `release.py`, from a local test commit): 1 index changed, 1698 files removed
   (`.class`, and the unlisted `ach.qm`, `en.qm`, `pt.qm`), 16 s; files2 serves 56
   languages as `<lang>.qm`, all sizes and SHA-1s matching the index.
+- 2026-10-25, publishing the tree since the last publish (replacing per-release publish
+  lists, after a Patreon list deployed but not published was then skipped by the next,
+  identical one): two Launcher builds deployed one after the other (5014, 5015) went out
+  in one publish (26 files, both in the channel); publishing again found nothing.
 
 Caching on files2 (2026-10-24): `files/*` has a Page Rule "Cache Everything" (store files
 never change, so the cache can't go stale); `downloads/` archives are cached by Cloudflare's
@@ -334,7 +338,7 @@ so Launchers always see the current channel.
 
 ### Snapshots (`files-snapshots.py`)
 
-    ./files-snapshots.py list | create <label> | restore <snapshot> | remove <snapshot>... | init
+    ./files-snapshots.py list | create <label> | restore <snapshot> | remove <snapshot>... | cleanup [--dry-run] | init
 
 Each files tree (`FILES_ROOT`) is a btrfs subvolume. Read-only snapshots of it are kept
 next to it, in `FILES_ROOT.snapshots/<time>-<label>`; `deploy.py` (`before-deploy-<build>`)
@@ -348,7 +352,20 @@ be undone too, then makes the tree match the snapshot (`rsync --delete --checksu
 changes only the local tree. `remove` works without root (btrfs only lets the owner delete
 a subvolume once it's writable and empty, which `remove` does). `init` turns an existing
 directory into a subvolume: reflink copy, compare, swap; the old directory stays as
-`FILES_ROOT.pre-subvolume` to delete by hand. Nothing prunes snapshots yet.
+`FILES_ROOT.pre-subvolume` to delete by hand.
+
+Every snapshot has its metadata next to it, `<snapshot>.json`: when, what kind (deploy,
+published, pulled, before-pull, before-restore, init, manual) and what about (the release,
+the number of files published); `list` shows them. Snapshots from before metadata get their
+kind from their names.
+
+**Cleanup** (after every publish, or `files-snapshots.py cleanup [--dry-run]`), like
+snapper's number cleanup on this workstation (which snap-pac runs around every pacman
+transaction; borrowed as an idea, not used, to avoid the dependency and its root daemon):
+keep the snapshot recorded as published, the newest `SNAPSHOTS_KEEP_PUBLISHED` (15)
+published or pulled ones (states that were live: kept longer, also for binary diffs between
+releases one day), the newest `SNAPSHOTS_KEEP` (30) others, and anything younger than
+`SNAPSHOTS_MIN_AGE_HOURS` (24); remove the rest.
 
 Verified 2026-10-23 on a copy of the tree: a deploy's snapshot showed exactly what it
 changed, restoring it gave back the original tree byte for byte, and deploying again
