@@ -1,0 +1,27 @@
+# The meta pipeline (MultiMC/meta) on mikoshi, moved from deth001 as it was: its own
+# update.sh, from its checkout in ~/meta, as the hopper user. Started hourly by meta.timer
+# (deth001 ran it from root's crontab, `0 * * * *`).
+#
+#   systemctl --user link ~/Toolchains/automation/systemd/meta.service ~/Toolchains/automation/systemd/meta.timer
+#   systemctl --user start meta.service      # one run now
+#   systemctl --user enable --now meta.timer
+#   journalctl _SYSTEMD_USER_UNIT=meta.service -f    (as an admin; see hopper@.service)
+#
+# meta itself is unchanged; only its config/config_local.sh differs from deth001's:
+# DEPLOY_FOLDER_master is root@deth001.multimc.org:/home/http/meta/v1/, so update.sh's own
+# rsync deploys meta.multimc.org through hopper-ssh, and DEPLOY_FORGE_MAVEN=false (it only
+# guarded a chown to http, which hopper can't do; the S3 sync behind it is off). The Forge
+# maven copy that enumerateForge.py keeps in ~/forgemaven (the checkout's forgemaven
+# symlink) is copied to deth001 afterwards, here, as it only grows: no deletes.
+
+[Unit]
+Description=MultiMC meta: update.sh, then its Forge maven copy to deth001
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/meta
+ExecStart=%h/meta/update.sh
+ExecStartPost=/usr/bin/rsync -rlt -og --chown=http:http --stats %h/forgemaven/ root@deth001.multimc.org:/home/http/forgemaven/
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

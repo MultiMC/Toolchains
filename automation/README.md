@@ -25,6 +25,7 @@ the files tree, publish to the live tree and a bucket. TeamCity still does the r
 | `defaults.env` | Every setting, with its default |
 | `files2.env` | Settings for the files2 test system |
 | `production.env` | Settings for production: none, `defaults.env` as it is; there so every setup has a name |
+| `systemd/meta.service`, `meta.timer` | The meta pipeline (MultiMC/meta), moved from deth001 as it was, hourly on mikoshi |
 | `systemd/hopper@.service` | The systemd user unit that keeps hopper running on mikoshi, one instance per settings file |
 | `state/` | Not in git: the Launcher repo mirror, the incremental work trees, the files trees |
 
@@ -580,6 +581,11 @@ hopper's output goes to the system journal, readable by an admin but not by hopp
 system user's uid gets no journal of its own); each run's output is also in
 `HOPPER_STATE.logs/`.
 
+Scripts run by hand as `hopper` need `CONTAINER_ENGINE=podman` too (hopper has no access to
+docker, on purpose); its `~/.bash_profile` exports it. `hopper.py release` takes the same
+state lock as the service, so stop the service first
+(`systemctl --user stop hopper@production`, then `start` again).
+
 The unit is linked from the checkout, so after a `git pull` that changes it:
 `systemctl --user daemon-reload` and a restart. A `git pull` that changes the scripts takes
 effect at hopper's next step (each step is a new process); `hopper.py` itself, after a
@@ -596,6 +602,18 @@ commit changing one German string (in a local scratch repo) was released in 8 s,
 list just `de.qm` and `index_v2.json`; then the real `master` (1e543c81, the new
 `release.py`) in 9 s, after which files2's `de.qm` was byte-identical to production's, built
 by TeamCity's old pipeline.
+
+## The meta pipeline (`systemd/meta.service`, `meta.timer`)
+
+meta.multimc.org's pipeline (the MultiMC/meta repo: `update.sh` and its Python scripts)
+moved from deth001 to mikoshi on 2026-10-26 as it was: same checkout, caches, upstream and
+output repos and `config/` (deploy keys, Discord webhooks), in `~/meta` of the `hopper`
+user, run hourly by `meta.timer` like deth001's cron. Its Python libraries are mikoshi's
+system packages (as on deth001). Only `config/config_local.sh` differs: `update.sh`
+deploys to `root@deth001.multimc.org:/home/http/meta/v1/` through `hopper-ssh`, and
+`DEPLOY_FORGE_MAVEN=false`. The Forge maven copy (`~/forgemaven`, written by
+`enumerateForge.py`) is copied to deth001's `/home/http/forgemaven` after each successful
+run. Changes to meta itself (a container with fixed tool versions, ...) come later.
 
 ## Requirements
 

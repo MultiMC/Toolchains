@@ -24,7 +24,8 @@ import shlex
 import sys
 import syslog
 
-TREES = ("/home/http/files", "/home/http/files2")
+# files.multimc.org, files2, and meta's output: meta.multimc.org and its Forge maven copy
+TREES = ("/home/http/files", "/home/http/files2", "/home/http/meta", "/home/http/forgemaven")
 
 # rsync options that name a place to read or write besides the transfer itself
 PATH_OPTIONS = ("--backup-dir", "--temp-dir", "-T", "--partial-dir", "--log-file", "--write-batch",
