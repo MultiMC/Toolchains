@@ -545,8 +545,12 @@ for a UI are meant to join it as further commands, working on the same files tre
 plain state files (see `UPDATER.md` next to the Toolchains repo).
 
 - **State:** `HOPPER_STATE` (JSON, one list per stream) records every handled commit: time, build number,
-  release directory, status (`published`, `failed`, `interrupted`, `adopted`) and the step
-  it stopped at; `status` prints it. Each run's output goes to `HOPPER_STATE.logs/`.
+  release directory, status (`published`, `failed`, `interrupted`, `adopted`), the step
+  it stopped at, and when each step started and ended (with its exit status); `status`
+  prints it. Each run's output goes to `HOPPER_STATE.logs/`. `watch` also writes
+  `HOPPER_STATE.status` after every look (each stream's head, each scheduled job's next
+  time, the code it runs, why a look failed) and keeps its own log,
+  `HOPPER_STATE.logs/hopper.log`, with a traceback if it crashes.
 - **Fails closed:** a failed step stops the chain; a failed or interrupted commit is not
   retried automatically (`release <stream> <commit>` retries it by hand). The next commit is handled
   normally.
@@ -602,6 +606,25 @@ commit changing one German string (in a local scratch repo) was released in 8 s,
 list just `de.qm` and `index_v2.json`; then the real `master` (1e543c81, the new
 `release.py`) in 9 s, after which files2's `de.qm` was byte-identical to production's, built
 by TeamCity's old pipeline.
+
+### Overview (`overview.py`, `hopper-top.py`)
+
+    ssh -t hopper@mikoshi Toolchains/automation/hopper-top.py
+    ./overview.py [--json]
+
+`hopper-top.py` shows, live and like top, every setup (each settings file but
+`defaults.env`): whether its hopper runs, its service, restarts and last look, each job's
+last run and next scheduled time, what's live (each update channel's newest builds, the
+website on test and production, the last published snapshot), meta's last run and next
+time, and all runs, newest first; Enter opens a run's log (following it while it runs), `h`
+the setup's `hopper.log`. SSH is its access control and transport: nothing listens on a
+port, and whoever may log in as `hopper` may look. It only reads: files, `systemctl --user
+show`, and `/proc/locks` for the locks (it never takes one, so it can't get in a build's
+way). `overview.py` gathers the same, as text or `--json` for other views (a native client
+over an SSH exec channel, a push to an external page). Actions (retry, release, promote)
+will be requests the running hopper picks up, not commands the view runs.
+
+Not shown: meta's output, which is only in the system journal, out of hopper's reach.
 
 ## The meta pipeline (`systemd/meta.service`, `meta.timer`)
 

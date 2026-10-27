@@ -113,15 +113,50 @@ def load_settings(config_file=None):
 
 # --- output and commands -----------------------------------------------------------------
 
+LOG_FILES = []    # open files that get a copy of everything logged (log_also_to)
+last_error = None  # the message of the last die()
+
+
+def emit(line):
+    print(line, file=sys.stderr, flush=True)
+    stamp = time.strftime("%Y-%m-%d" if line.startswith("[") else "%Y-%m-%d %H:%M:%S")  # logger lines have the time
+    for f in LOG_FILES:
+        f.write("%s %s\n" % (stamp, line))
+        f.flush()
+
+
 def logger(tool):
     def log(message):
-        print("[%s %s] %s" % (time.strftime("%H:%M:%S"), tool, message), file=sys.stderr, flush=True)
+        emit("[%s %s] %s" % (time.strftime("%H:%M:%S"), tool, message))
     return log
 
 
 def die(message):
-    print("error: %s" % message, file=sys.stderr)
+    global last_error
+    last_error = message
+    emit("error: %s" % message)
     sys.exit(1)
+
+
+@contextmanager
+def log_also_to(path):
+    """Copy everything logged in a `with` block to the file `path` (appended), and the
+    traceback if the block ends with an unexpected exception."""
+    import traceback
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as f:
+        LOG_FILES.append(f)
+        try:
+            yield
+        except (SystemExit, KeyboardInterrupt) as e:
+            emit("stopped (%s)" % ("Ctrl-C" if isinstance(e, KeyboardInterrupt) else "exit %s" % e.code))
+            raise
+        except BaseException:
+            f.write("%s crashed:\n%s" % (time.strftime("%Y-%m-%d %H:%M:%S"), traceback.format_exc()))
+            f.flush()
+            raise
+        finally:
+            LOG_FILES.remove(f)
 
 
 def run(*args, **kwargs):
@@ -248,6 +283,33 @@ def is_locked(path):
             return True
         fcntl.flock(f, fcntl.LOCK_UN)
         return False
+
+
+def lock_holder(path):
+    """The pid holding the lock on `path`, or None; unlike is_locked, without touching the
+    lock (for looking often, as the overview does: is_locked takes it for a moment, and a
+    build starting just then would fail). From /proc/locks, which names the file by inode
+    (its device there isn't the one stat gives on btrfs), confirmed by the holder's open
+    files where they can be read."""
+    try:
+        inode = os.stat(path).st_ino
+        lines = Path("/proc/locks").read_text().splitlines()
+    except OSError:
+        return None
+    real = os.path.realpath(path)
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 6 or fields[1] != "FLOCK" or fields[5].rsplit(":", 1)[-1] != str(inode):
+            continue
+        pid = int(fields[4])
+        try:
+            if any(os.path.realpath(fd) == real for fd in Path("/proc/%d/fd" % pid).iterdir()):
+                return pid
+        except PermissionError:
+            return pid  # someone else's process; the inode matched
+        except OSError:
+            continue
+    return None
 
 
 RELEASE_LOCK = STATE / "release-build.lock"

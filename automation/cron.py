@@ -5,6 +5,7 @@ Each field is *, a number, a range a-b, a list a,b,c, or any of those with a ste
 of week are restricted, a day matching either one is a match.
 
     Schedule("0 12 * * *").latest(now)    # the most recent scheduled minute at or before now
+    Schedule("0 12 * * *").next(now)      # the first one after now
 """
 
 import datetime
@@ -45,6 +46,21 @@ class Schedule:
                 for minute in sorted(self.minutes, reverse=True):
                     moment = datetime.datetime(day.year, day.month, day.day, hour, minute)
                     if moment <= now:
+                        return moment
+        return None
+
+    def next(self, now, days_ahead=400):
+        """The first scheduled minute after `now`, or None if there is none in the next
+        `days_ahead` days."""
+        now = now.replace(second=0, microsecond=0)
+        for ahead in range(days_ahead + 1):
+            day = (now + datetime.timedelta(days=ahead)).date()
+            if not self.day_matches(day):
+                continue
+            for hour in sorted(self.hours):
+                for minute in sorted(self.minutes):
+                    moment = datetime.datetime(day.year, day.month, day.day, hour, minute)
+                    if moment > now:
                         return moment
         return None
 

@@ -30,7 +30,11 @@ status   what has been handled, newest first
 
 hopper builds and publishes nothing itself: it runs the same scripts a person would, so
 every step can still be run and inspected on its own. Each handled commit is recorded in
-HOPPER_STATE (JSON), each run's output in HOPPER_STATE.logs/. A commit that fails is not
+HOPPER_STATE (JSON), with when each of its steps started and ended, each run's output in
+HOPPER_STATE.logs/. `watch` also keeps HOPPER_STATE.status (what it saw at its last look,
+see Status) and its own log, HOPPER_STATE.logs/hopper.log (what it printed, and the
+traceback if it crashes; the journal has it too, but hopper can't read that). The overview
+(overview.py, hopper-top.py) shows all of it. A commit that fails is not
 retried automatically; the next commit is handled normally. Stopping hopper (SIGTERM,
 Ctrl-C) stops the step that is running and records the commit as interrupted; it isn't
 retried automatically either. When a stream has no records yet, its current head is
@@ -82,6 +86,7 @@ class Scheduled:
     schedule_setting: str  # a cron-style schedule, this machine's time
     enabled_setting: str   # the job only runs where this setting isn't empty
     build_script: str
+    publish_script = None  # always deploy.py and publish.py
 
     def enabled(self, settings):
         return bool(settings[self.enabled_setting] and settings[self.schedule_setting])
@@ -89,6 +94,11 @@ class Scheduled:
     def latest(self, settings, now):
         """The most recent scheduled time at or before `now` (a datetime), as "YYYY-MM-DD HH:MM"."""
         moment = cron.Schedule(settings[self.schedule_setting]).latest(now)
+        return moment.strftime("%Y-%m-%d %H:%M") if moment else None
+
+    def next(self, settings, now):
+        """The first scheduled time after `now`, the same way."""
+        moment = cron.Schedule(settings[self.schedule_setting]).next(now)
         return moment.strftime("%Y-%m-%d %H:%M") if moment else None
 
 
@@ -133,7 +143,8 @@ def main():
         elif args.once:
             look(settings, config, state)
         else:
-            watch(settings, config, state)
+            with common.log_also_to(state.logs / "hopper.log"):
+                watch(settings, config, state)
 
 
 class State:
@@ -184,6 +195,33 @@ class State:
                 entry.get("release") or ""))
 
 
+class Status:
+    """HOPPER_STATE.status (JSON), what the running `hopper.py watch` saw, for the overview:
+
+        {"pid", "started", "config", "code" (the Toolchains commit it runs), "interval",
+         "looked" (the end of its last look: a heartbeat, except while a release runs),
+         "problem" (why the last look failed, or null),
+         "jobs": {stream: {"head", "looked"}, scheduled job: {"latest", "next", "looked"}}}
+
+    Only written by `watch`; whether a hopper is running at all is the state's lock."""
+
+    def __init__(self, state, settings, config):
+        self.path = Path(str(state.path) + ".status")
+        self.data = {"pid": os.getpid(), "started": now(), "config": str(config) if config else None,
+                     "code": subprocess.run(["git", "-C", str(common.TOOLCHAINS), "describe", "--always", "--dirty"],
+                                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout.strip(),
+                     "interval": int(settings["WATCH_INTERVAL"]), "looked": None, "problem": None, "jobs": {}}
+
+    def saw(self, job, **values):
+        self.data["jobs"][job.name] = {**values, "looked": now()}
+
+    def save(self, **values):
+        self.data.update(values)
+        new = Path(str(self.path) + ".new")
+        new.write_text(json.dumps(self.data, indent=2) + "\n")
+        os.replace(new, self.path)
+
+
 def now():
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -211,22 +249,28 @@ def watch(settings, config, state):
         log("scheduled %s: %s" % (job.name, settings[job.schedule_setting] if job.enabled(settings)
                                   else "off (%s is empty)" % job.enabled_setting))
     log("every %d s" % interval)
+    status = Status(state, settings, config)
+    status.save()
     while True:
         try:
-            look(settings, config, state)
+            look(settings, config, state, status)
+            status.save(looked=now(), problem=None)
         except common.Stopped:
             raise
-        except SystemExit:
+        except SystemExit as e:
             log("this look failed (see above); trying again in %d s" % interval)
+            status.save(looked=now(), problem=common.last_error or "exit %s" % e.code)
         time.sleep(interval)
 
 
-def look(settings, config, state):
+def look(settings, config, state, status=None):
     """One look at every stream and scheduled job; handles at most one release each."""
     for stream in STREAMS.values():
         if not stream.enabled(settings):
             continue
         commit = head(settings, stream)
+        if status:
+            status.saw(stream, head=commit)
         if state.handled(stream, "commit", commit):
             continue
         if not state.streams[stream.name]:
@@ -242,7 +286,10 @@ def look(settings, config, state):
     for job in SCHEDULED.values():
         if not job.enabled(settings):
             continue
-        scheduled = job.latest(settings, datetime.datetime.now())
+        moment = datetime.datetime.now()
+        scheduled = job.latest(settings, moment)
+        if status:
+            status.saw(job, latest=scheduled, next=job.next(settings, moment))
         if scheduled is None or state.handled(job, "scheduled", scheduled):
             continue
         if common.is_locked(common.RELEASE_LOCK):
@@ -313,9 +360,11 @@ class Run:
     def step(self, name, script, *args, stdout):
         """Run one script; returns (exit status, its standard output if stdout=PIPE). If
         hopper is stopped meanwhile, the script is stopped too."""
+        record = {"step": name, "start": now()}
+        self.entry.setdefault("steps", []).append(record)
         self.entry["step"] = name
         self.state.save()
-        self.logf.write("\n=== %s %s: %s %s\n" % (now(), name, script, " ".join(args)))
+        self.logf.write("\n=== %s %s: %s %s\n" % (record["start"], name, script, " ".join(args)))
         self.logf.flush()
         process = subprocess.Popen([sys.executable, common.AUTOMATION / script, *self.config_args, *args],
                                    stdout=stdout, stderr=self.logf, text=True)
@@ -324,6 +373,8 @@ class Run:
         except BaseException:
             common.stop([process])
             raise
+        finally:
+            record.update(end=now(), exit=process.returncode)  # saved with whatever comes next
         return process.returncode, output
 
     def record_release(self, release):
@@ -339,6 +390,7 @@ class Run:
 
     def finish(self, status, message):
         self.entry["status"] = status
+        self.entry["finished"] = now()
         if status == "published":
             self.entry.pop("step")
         self.state.save()
