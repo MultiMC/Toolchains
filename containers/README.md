@@ -15,10 +15,11 @@ README with how it was made and verified.
 ## What the images contain
 
 Toolchains only: no build steps, no entrypoint. The build steps are in
-`../automation/build/`, and `../automation/run-build.py` runs every platform the same way:
+hopper's `build/`, and its `run-build.py` runs every platform the same way
+([hopper](https://github.com/MultiMC/hopper)):
 
     docker run --rm --network none -u <uid>:<gid> \
-        -v <source>:/src:ro -v <output>:/out -v automation/build:/build:ro <settings> \
+        -v <source>:/src:ro -v <output>:/out -v hopper/build:/build:ro <settings> \
         <image> bash /build/<platform script>
 
 So a change to the build steps never needs an image rebuild; images change only when a

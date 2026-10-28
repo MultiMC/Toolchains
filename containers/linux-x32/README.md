@@ -11,7 +11,7 @@ during the build) and installs it to `/`, like the lin64 image's cmake.
     docker build -t multimc/toolchains/linux-x32:dev .
 
 `cmake-3.10.0.tar.gz` and `cmake-3.10.0-SHA-256.txt` are from cmake.org. The build steps are
-`../../automation/build/linux.sh`.
+hopper's `build/linux.sh`.
 
 History: the same fix was first made by hand (`docker commit`) on 2026-10-21 and loaded on
 deth001, where TeamCity's Linux32 build uses it (archived as

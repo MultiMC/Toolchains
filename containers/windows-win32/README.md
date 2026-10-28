@@ -6,7 +6,7 @@ replacing the VM.
 
     docker build -t multimc/toolchains/windows-win32:dev .
 
-The build steps are `../../automation/build/win32.sh`.
+The build steps are hopper's `build/win32.sh`.
 
 ## Pieces
 

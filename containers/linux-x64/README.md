@@ -9,7 +9,7 @@ so the snapshot image is the source; this directory only gives it the uniform na
     docker build -t multimc/toolchains/linux-x64:dev .
 
 Not archived separately: it is the snapshot image. The build steps are
-`../../automation/build/linux.sh`.
+hopper's `build/linux.sh`.
 
 Verified 2026-10-21: builds develop 2a684511 with all tests passing, same file list, same
 system libraries and symbol versions (max GLIBC_2.14, GLIBCXX_3.4.21) as the shipped

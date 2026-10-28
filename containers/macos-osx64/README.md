@@ -9,7 +9,7 @@ Produces the same app as the TeamCity macOS build: x86_64, minimum macOS 10.13, 
     docker build --build-context macarchive=../../snapshots/2026-10-21-macmini \
         -t multimc/toolchains/macos-osx64:dev .
 
-The build steps are `../../automation/build/osx64.sh`.
+The build steps are hopper's `build/osx64.sh`.
 
 ## Pieces
 
@@ -37,7 +37,7 @@ Against the shipped `mmc-develop-osx64-5.15.2.tar.gz` (`snapshots/2026-10-21-det
   prebuilt Qt frameworks/plugins SDK 10.14, the same split as the shipped build
 - nothing linked outside the bundle, `/usr/lib`, `/System`; the commit is embedded; the
   updater and notification URLs are embedded (an early version lacked them, see
-  `automation/README.md`)
+  hopper's `README.md`)
 - launched on the macmini (macOS 11.6) in its GUI session: initialises and runs
 
 Not covered: the unit tests (macOS binaries) and running on macOS 10.13 itself.

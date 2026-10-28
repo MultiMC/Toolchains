@@ -49,7 +49,7 @@ ENV PATH=/opt/osxcross/bin:/opt/jdk8/bin:$PATH JAVA_HOME=/opt/jdk8
 
 # The macmini's Qt 5.15.2 clang_64 at its original path, with the Linux moc/rcc/uic and the
 # qmake stand-in (prepare-qt.sh). The archive is mounted, not copied into a layer.
-# The CMake toolchain file used by the build (automation/build/osx64.sh).
+# The CMake toolchain file used by the build (hopper's build/osx64.sh).
 COPY toolchain-osx64.cmake /opt/toolchain-osx64.cmake
 COPY prepare-qt.sh /opt/prepare-qt.sh
 RUN apt-get update && apt-get install -y --no-install-recommends zstd && rm -rf /var/lib/apt/lists/*
