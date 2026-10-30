@@ -7,8 +7,8 @@
 # Wine is GE-Proton10-15, the known-good Wine from the prototype (build.sh), copied in as-is
 # and run the same way (files/bin/wine). No Wine packages from the distribution.
 # Only the parts of Tools/ the build uses are copied in (.dockerignore):
-# Qt 5.6.3 mingw49_32 + MinGW 4.9.2, CMake 3.20.1 (from the VM), dumpbin/link, GnuWin32
-# zlib, OpenSSL 1.0, JDK 8u112.
+# Qt 5.6.3 mingw49_32 + MinGW 4.9.2, CMake 3.20.1 (from the VM), GnuWin32 zlib,
+# OpenSSL 1.0, JDK 8u112. dumpbin is our own stand-in (dumpbin/), built here with that MinGW.
 
 FROM archlinux@sha256:e43f1fd80e073992c5f173efbbbf65144170bf60aeb7369940087d63eacea8f4
 
@@ -34,5 +34,17 @@ RUN WINEPREFIX=$PREFIX_TEMPLATE $WINE wineboot -i \
     && cp /opt/ge-proton/files/share/default_pfx/drive_c/windows/system32/libvkd3d*.dll $PREFIX_TEMPLATE/drive_c/windows/system32/ \
     && cp /opt/ge-proton/files/share/default_pfx/drive_c/windows/syswow64/libvkd3d*.dll $PREFIX_TEMPLATE/drive_c/windows/syswow64/ \
     && chmod -R a+rX $PREFIX_TEMPLATE
+
+# dumpbin /dependents for the bundling (CMAKE_GP_TOOL=dumpbin, found in T:\Tools), built with
+# the image's MinGW 4.9.2 in a throwaway copy of the prefix. See dumpbin/README.md.
+COPY dumpbin/dumpbin.c /opt/win32/src/dumpbin.c
+RUN cp -R $PREFIX_TEMPLATE /tmp/prefix \
+    && mkdir -p $TOOLS/Tools \
+    && WINEPREFIX=/tmp/prefix WINEPATH='Z:\opt\win32\Tools\Qt\Tools\mingw492_32\bin' \
+        $WINE gcc -std=c89 -pedantic -Wall -Wextra -Werror -O2 -s \
+        -o 'Z:\opt\win32\Tools\Tools\dumpbin.exe' 'Z:\opt\win32\src\dumpbin.c' \
+    && WINEPREFIX=/tmp/prefix /opt/ge-proton/files/bin/wineserver -w \
+    && rm -rf /tmp/prefix \
+    && chmod -R a+rX $TOOLS/Tools
 
 LABEL org.opencontainers.image.title="MultiMC win32 toolchain (GE-Proton10-15)"
