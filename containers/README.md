@@ -15,7 +15,7 @@ built from upstream sources and pinned inputs.
 | [`windows-win32/`](windows-win32/README.md) | win32 | preserved toolchain on a primary base | Arch pinned by digest + Arch Linux Archive snapshot; GE-Proton10-15 copied as-is from the prototype; the Win7 VM's `Tools/` (Qt 5.6.3, MinGW 4.9.2, CMake 3.20.1, MSVC dumpbin/link, OpenSSL 1.0, JDK 8u112), hash-verified against the VM disk |
 | [`macos-osx64/`](macos-osx64/README.md) | osx64-5.15.2 | preserved SDK and Qt on a primary base | Debian pinned by digest, osxcross pinned by commit, qtbase 5.15.2 source, Temurin JDK 8; the macmini's SDK 11.1 (Xcode 12.4) and Qt 5.15.2 clang_64 |
 | [`translations/`](translations/README.md) | the translations repo's tooling | primary | Debian pinned by digest + Qt 5.15.2 qtbase/qttools source |
-| [`deployer/`](deployer/README.md) | hopper's deploy and publish steps | primary | Debian 12 packages (python3, rclone) + repoman2 4ce9a73; until 2026-10-30 the deth001 snapshot image + upstream rclone |
+| [`deployer/`](deployer/README.md) | hopper's deploy and publish steps | primary | Debian 12 (python3) + rclone 1.75.2 from rclone.org + repoman2 4ce9a73; until 2026-10-30 the deth001 snapshot image + upstream rclone |
 
 Images used without a directory here, straight from `../snapshots/2026-10-21-deth001/images`:
 
