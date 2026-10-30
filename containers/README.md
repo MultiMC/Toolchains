@@ -4,13 +4,25 @@ Sources for the toolchain images, one directory per image. Image name:
 `multimc/toolchains/<directory>:dev`. Each directory has a `Dockerfile`, its inputs and a
 README with how it was made and verified.
 
-| Directory | Image for | Made from |
-|-----------|-----------|-----------|
-| [`linux-x64/`](linux-x64/README.md) | lin64 | the deth001 snapshot image, unchanged |
-| [`linux-x32/`](linux-x32/README.md) | lin32 | the deth001 snapshot image + CMake 3.10.0 from source |
-| [`windows-win32/`](windows-win32/README.md) | win32 | minimal Arch + GE-Proton10-15 + the Win7 VM's toolchain |
-| [`macos-osx64/`](macos-osx64/README.md) | osx64-5.15.2 | Debian + osxcross + the macmini's SDK and Qt |
-| [`translations/`](translations/README.md) | the translations repo's tooling | Debian + Qt 5.15.2 linguist tools |
+Kind: **preserved** means made from what was on the old machines, kept on purpose for
+compatibility (Windows XP, old macOS, old glibc) and not to be replaced; **primary** means
+built from upstream sources and pinned inputs.
+
+| Directory | Image for | Kind | Made from |
+|-----------|-----------|------|-----------|
+| [`linux-x64/`](linux-x64/README.md) | lin64 | preserved | the deth001 snapshot image, unchanged (Ubuntu 14.04, glibc 2.19, g++-5, Qt 5.6.3 from a PPA); can't be rebuilt from its recipe |
+| [`linux-x32/`](linux-x32/README.md) | lin32 | preserved, one primary input | the deth001 snapshot image (i386) + CMake 3.10.0 built from cmake.org's source |
+| [`windows-win32/`](windows-win32/README.md) | win32 | preserved toolchain on a primary base | Arch pinned by digest + Arch Linux Archive snapshot; GE-Proton10-15 copied as-is from the prototype; the Win7 VM's `Tools/` (Qt 5.6.3, MinGW 4.9.2, CMake 3.20.1, MSVC dumpbin/link, OpenSSL 1.0, JDK 8u112), hash-verified against the VM disk |
+| [`macos-osx64/`](macos-osx64/README.md) | osx64-5.15.2 | preserved SDK and Qt on a primary base | Debian pinned by digest, osxcross pinned by commit, qtbase 5.15.2 source, Temurin JDK 8; the macmini's SDK 11.1 (Xcode 12.4) and Qt 5.15.2 clang_64 |
+| [`translations/`](translations/README.md) | the translations repo's tooling | primary | Debian pinned by digest + Qt 5.15.2 qtbase/qttools source |
+| [`deployer/`](deployer/README.md) | hopper's deploy and publish steps | primary | Debian 12 packages (python3, rclone) + repoman2 4ce9a73; until 2026-10-30 the deth001 snapshot image + upstream rclone |
+
+Images used without a directory here, straight from `../snapshots/2026-10-21-deth001/images`:
+
+| Snapshot image | Status |
+|----------------|--------|
+| `toolchains-site` (Hugo 0.31.1) | in use, preserved: hopper's `website/build.py` runs `ghcr.io/multimc/toolchains/site:latest` (`IMAGE_SITE`). A candidate for a primary rebuild, as Hugo is a single upstream binary. |
+| `toolchains-windows` | unused (an experiment, never pushed) |
 
 ## What the images contain
 
