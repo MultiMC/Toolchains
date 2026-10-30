@@ -50,10 +50,11 @@ RUN cp -R $PREFIX_TEMPLATE /tmp/prefix \
 
 # JDK 8 for the Launcher's jars (javac -target 7, which newer JDKs refuse): Temurin, the same
 # release as the macOS image. The build steps take its Windows path from JDK.
+# The zip records its builder's uid/gid (1003080000), which rootless podman can't map: no owners.
 COPY tarballs/OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip /tmp/
 RUN cd /tmp && echo "ea43d46ede95b51e44a12c66711706cddc762e0a766c54bccea18954e902b2aa  OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip" | sha256sum -c \
     && mkdir -p $TOOLS/jdk8 \
-    && bsdtar -xf OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip --strip-components 1 -C $TOOLS/jdk8 \
+    && bsdtar -xf OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip --no-same-owner --strip-components 1 -C $TOOLS/jdk8 \
     && rm OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip \
     && chmod -R a+rX $TOOLS/jdk8
 ENV JDK='T:\jdk8'
