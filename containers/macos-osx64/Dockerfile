@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # MultiMC macOS cross toolchain: builds the osx64-5.15.2 Launcher on Linux.
 #
-# Build with the macmini archive as a named context (it provides the Qt 5.15.2 itself):
+# Build with the Qt 5.15.2 as a named context: the macmini archive, or a directory holding
+# 5.15.2/clang_64 (see README.md, "Building it yourself"):
 #   docker build --build-context macarchive=../../snapshots/2026-10-21-macmini -t multimc/toolchains/macos-osx64:dev .
 #
 # Inputs in tarballs/ (all archived, see ../README.md):
@@ -47,7 +48,7 @@ COPY tarballs/OpenJDK8U-jdk_x64_linux_hotspot_8u504b01.tar.gz /tmp/
 RUN mkdir -p /opt/jdk8 && tar -C /opt/jdk8 --strip-components=1 -xzf /tmp/OpenJDK8U-*.tar.gz && rm /tmp/OpenJDK8U-*.tar.gz
 ENV PATH=/opt/osxcross/bin:/opt/jdk8/bin:$PATH JAVA_HOME=/opt/jdk8
 
-# The macmini's Qt 5.15.2 clang_64 at its original path, with the Linux moc/rcc/uic and the
+# The Qt 5.15.2 clang_64 at the macmini's original path, with the Linux moc/rcc/uic and the
 # qmake stand-in (prepare-qt.sh). The archive is mounted, not copied into a layer.
 # The CMake toolchain file used by the build (hopper's build/osx64.sh).
 COPY toolchain-osx64.cmake /opt/toolchain-osx64.cmake

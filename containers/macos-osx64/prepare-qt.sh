@@ -1,6 +1,10 @@
 #!/bin/bash
-# Install the macmini's Qt 5.15.2 clang_64, made usable from Linux, under $QT_ROOT.
+# Install Qt 5.15.2 clang_64, made usable from Linux, under $QT_ROOT.
 # Run by the Dockerfile with QT_ROOT=/, i.e. /Users/peterix/Qt/5.15.2/clang_64.
+#
+# The Qt comes from $ARCHIVE: the macmini snapshot (macmini-Qt.tar.zst), or else a Qt
+# directory holding 5.15.2/clang_64, e.g. Qt's own archives unpacked or a Qt installer's ~/Qt.
+# Both are the same Qt (qt.qt5.5152.clang_64 5.15.2-0-202011130601); see README.md.
 #
 # The prebuilt macOS Qt is used as-is for headers, frameworks and plugins. Only its
 # build-time tools are macOS binaries, so they are moved to bin.macos/ and replaced:
@@ -17,8 +21,16 @@ P=/Users/peterix/Qt/5.15.2/clang_64
 # Only ever remove the Qt directory itself, never $W (which may be /).
 rm -rf "${W%/}$P"
 mkdir -p "${W%/}/"
-tar -C "${W%/}/" --zstd -xf "$ARCHIVE/macmini-Qt.tar.zst" --warning=no-unknown-keyword \
-    --exclude='._*' --exclude='.DS_Store' "${P#/}"
+if [ -f "$ARCHIVE/macmini-Qt.tar.zst" ]; then
+    tar -C "${W%/}/" --zstd -xf "$ARCHIVE/macmini-Qt.tar.zst" --warning=no-unknown-keyword \
+        --exclude='._*' --exclude='.DS_Store' "${P#/}"
+elif [ -d "$ARCHIVE/5.15.2/clang_64" ]; then
+    mkdir -p "$(dirname "${W%/}$P")"
+    cp -a "$ARCHIVE/5.15.2/clang_64" "${W%/}$P"
+else
+    echo "no Qt in $ARCHIVE: needs macmini-Qt.tar.zst or 5.15.2/clang_64" >&2
+    exit 1
+fi
 
 cd "${W%/}$P/bin"
 mkdir -p ../bin.macos
