@@ -8,7 +8,8 @@
 # and run the same way (files/bin/wine). No Wine packages from the distribution.
 # Only the parts of Tools/ the build uses are copied in (.dockerignore):
 # Qt 5.6.3 mingw49_32 + MinGW 4.9.2, CMake 3.20.1 (from the VM), GnuWin32 zlib,
-# OpenSSL 1.0, JDK 8u112. dumpbin is our own stand-in (dumpbin/), built here with that MinGW.
+# OpenSSL 1.0. dumpbin is our own stand-in (dumpbin/), built here with that MinGW; the JDK is
+# Temurin 8 (tarballs/), in place of the VM's Oracle JDK 8u112.
 
 FROM archlinux@sha256:e43f1fd80e073992c5f173efbbbf65144170bf60aeb7369940087d63eacea8f4
 
@@ -46,5 +47,15 @@ RUN cp -R $PREFIX_TEMPLATE /tmp/prefix \
     && WINEPREFIX=/tmp/prefix /opt/ge-proton/files/bin/wineserver -w \
     && rm -rf /tmp/prefix \
     && chmod -R a+rX $TOOLS/Tools
+
+# JDK 8 for the Launcher's jars (javac -target 7, which newer JDKs refuse): Temurin, the same
+# release as the macOS image. The build steps take its Windows path from JDK.
+COPY tarballs/OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip /tmp/
+RUN cd /tmp && echo "ea43d46ede95b51e44a12c66711706cddc762e0a766c54bccea18954e902b2aa  OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip" | sha256sum -c \
+    && mkdir -p $TOOLS/jdk8 \
+    && bsdtar -xf OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip --strip-components 1 -C $TOOLS/jdk8 \
+    && rm OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip \
+    && chmod -R a+rX $TOOLS/jdk8
+ENV JDK='T:\jdk8'
 
 LABEL org.opencontainers.image.title="MultiMC win32 toolchain (GE-Proton10-15)"

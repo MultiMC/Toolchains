@@ -2,9 +2,9 @@
 *
 !GE-Proton10-15
 !dumpbin/dumpbin.c
+!tarballs/OpenJDK8U-jdk_x64_windows_hotspot_8u504b01.zip
 !Tools/Qt/5.6.3/mingw49_32
 !Tools/Qt/Tools/mingw492_32
 !Tools/CMake-3.20.1
 !Tools/GnuWin32
 !Tools/OpenSSL-Win32
-!Tools/jdk1.8.0_112
