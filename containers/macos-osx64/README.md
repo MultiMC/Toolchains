@@ -35,9 +35,12 @@ This image can't be published: it contains Apple's macOS SDK, which the Xcode li
 doesn't allow passing on. Everything else is public, so you can build it yourself on Linux
 with Docker. You need an Apple ID (free) and, for one step, a Mac.
 
-1. **The SDK, from Xcode 12.4.** Download `Xcode_12.4.xip` from
-   <https://developer.apple.com/download/all/>. On a Mac, unpack it (`xip --expand
-   Xcode_12.4.xip`) and pack the two parts the SDK is made from, without macOS's `._` files:
+1. **The SDK, from Xcode 12.4** (12D4e). Download `Xcode_12.4.xip` (11.7 GB) from
+   <https://developer.apple.com/download/all/>; <https://xcodereleases.com/> has a direct
+   link to every Xcode release. Its SHA-1 must be `85d77f3876bd3a955b4422e10d2e9acd9a11f104`
+   (`shasum -a 1 Xcode_12.4.xip`). On a Mac, unpack it in an empty directory (`xip --expand
+   Xcode_12.4.xip`, a few minutes, 15 GB) and pack the two parts the SDK is made from,
+   without macOS's `._` files:
 
        COPYFILE_DISABLE=1 tar -cf xcode-12.4-parts.tar \
            Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk \
@@ -45,7 +48,7 @@ with Docker. You need an Apple ID (free) and, for one step, a Mac.
 
    On Linux, unpack that and make the SDK package from it:
 
-       mkdir ~/xcode-12.4 && tar -C ~/xcode-12.4 -xf xcode-12.4-parts.tar --exclude='._*'
+       mkdir ~/xcode-12.4 && tar -C ~/xcode-12.4 -xf xcode-12.4-parts.tar --exclude='._*' --warning=no-unknown-keyword
        XCODE=~/xcode-12.4/Xcode.app ./make-sdk-package.sh
 
 2. **The other inputs** in `tarballs/`, from their upstreams:
@@ -84,8 +87,13 @@ Checked on 2026-10-30: `make-sdk-package.sh` makes the identical SDK package fro
 unpacked are the macmini's Qt file for file, except the two `qt.conf` files and the edition
 line in `mkspecs/qconfig.pri` that Qt's installer writes (read only by qmake, which the image
 replaces); an image built from them builds develop da162756 identically to this one (same 48
-files, all binaries byte-identical, jar contents identical, the gate passes). Not tried yet:
-step 1 with a freshly downloaded `Xcode_12.4.xip`; the SDK checksum in step 2 is what tells.
+files, all binaries byte-identical, jar contents identical, the gate passes).
+
+Step 1 with a freshly downloaded `Xcode_12.4.xip` (2026-11-01, SHA-1 as above, unpacked on
+macOS 13 on Apple Silicon): the SDK files are the macmini's, byte for byte, but Apple ships
+11,928 of them read-only where the installed Xcode had them writable, so
+`make-sdk-package.sh` makes every file owner-writable; with that, both give the package in
+`tarballs/SHA256SUMS`.
 
 ## Verification (2026-10-21, develop 2a684511)
 

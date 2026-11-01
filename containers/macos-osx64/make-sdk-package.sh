@@ -31,6 +31,9 @@ mkdir pkg
 cp -a "$SDK" pkg/MacOSX11.1.sdk
 mkdir -p pkg/MacOSX11.1.sdk/usr/include/c++
 cp -a "$X/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1" pkg/MacOSX11.1.sdk/usr/include/c++/
+# Apple's Xcode_12.4.xip has many SDK files read-only; the macmini's installed Xcode had them
+# writable, the contents identical. Owner-writable everywhere, so both give the same package.
+chmod -R u+w pkg/MacOSX11.1.sdk
 
 mkdir -p "$(dirname "$OUT")"
 tar -C pkg --sort=name --owner=0 --group=0 --numeric-owner --mtime=2020-11-30 -cf - MacOSX11.1.sdk | xz -T1 -6 > "$OUT"
