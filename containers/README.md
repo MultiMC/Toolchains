@@ -13,6 +13,7 @@ built from upstream sources and pinned inputs.
 | [`linux-x64/`](linux-x64/README.md) | lin64 | preserved | the deth001 snapshot image, unchanged (Ubuntu 14.04, glibc 2.19, g++-5, Qt 5.6.3 from a PPA); can't be rebuilt from its recipe |
 | [`linux-x32/`](linux-x32/README.md) | lin32 | preserved, one primary input | the deth001 snapshot image (i386) + CMake 3.10.0 built from cmake.org's source |
 | [`windows-win32/`](windows-win32/README.md) | win32 | preserved toolchain on a primary base | Arch pinned by digest + Arch Linux Archive snapshot; GE-Proton10-15 copied as-is from the prototype; the Win7 VM's `Tools/` (Qt 5.6.3, MinGW 4.9.2, CMake 3.20.1, MSVC dumpbin/link, OpenSSL 1.0, JDK 8u112), hash-verified against the VM disk |
+| [`windows-win32-qt5.15/`](windows-win32-qt5.15/README.md) | win32-5.15.2 | preserved toolchain on the win32 image | `windows-win32` (published 2026-10-30) + the Win7 VM's `QtX` (Qt 5.15.2 mingw81_32, MinGW 8.1.0, OpenSSL 1.1.1j, the VC++ 2010 runtime from Qt's `vcredist_x86.exe`), hash-verified against the VM disk |
 | [`macos-osx64/`](macos-osx64/README.md) | osx64-5.15.2 | preserved SDK and Qt on a primary base | Debian pinned by digest, osxcross pinned by commit, qtbase 5.15.2 source, Temurin JDK 8; the macmini's SDK 11.1 (Xcode 12.4) and Qt 5.15.2 clang_64; can't be published (Apple's SDK), but anyone can [build it](macos-osx64/README.md#building-it-yourself) from Xcode 12.4 and Qt's own archives |
 | [`translations/`](translations/README.md) | the translations repo's tooling | primary | Debian pinned by digest + Qt 5.15.2 qtbase/qttools source |
 | [`deployer/`](deployer/README.md) | hopper's deploy and publish steps | primary | Debian 12 (python3) + rclone 1.75.2 from rclone.org + repoman2 4ce9a73; until 2026-10-30 the deth001 snapshot image + upstream rclone |
@@ -47,6 +48,7 @@ osxcross fetches its own dependencies from GitHub during the build).
 |------|-------|
 | `linux-x32.tar.zst` | `multimc/toolchains/linux-x32:dev` |
 | `windows-win32.tar.zst` | `multimc/toolchains/windows-win32:dev` |
+| `windows-win32-qt5.15.tar.zst` | `multimc/toolchains/windows-win32-qt5.15:dev` |
 | `macos-osx64.tar.zst` | `multimc/toolchains/macos-osx64:dev` |
 | `translations.tar.zst` | `multimc/toolchains/translations:dev` (also running on deth001) |
 | `linux-x32-teamcity.tar.zst` | `ghcr.io/multimc/toolchains/linux-x32:cmake-3.10.0`, the hand-made fix TeamCity's Linux32 build uses on deth001 until the cutover |

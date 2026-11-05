@@ -1,6 +1,6 @@
 # MultiMC Launcher toolchains
 
-The toolchains needed to build the MultiMC Launcher (lin64, lin32, win32,
+The toolchains needed to build the MultiMC Launcher (lin64, lin32, win32, win32-5.15.2,
 osx64-5.15.2) without the old build machines, while staying compatible with every system
 it supports today (Windows XP, macOS 10.13, old glibc), and the images of the tools the other release jobs run. Two parts:
 
@@ -59,5 +59,6 @@ similar licenses, these are the sources:
 |-------|----------|---------|
 | `linux-x64`, `linux-x32` | Ubuntu 14.04 packages; Qt 5.6.3 (`/opt/qt56`) from the beineri/opt-qt563-trusty PPA; gcc 5 from the ubuntu-toolchain-r/test PPA; OpenJDK 8 from the openjdk-r PPA; CMake 3.10.0 | `deb-src http://archive.ubuntu.com/ubuntu trusty main universe`; the PPAs' source packages on Launchpad (`~beineri/+archive/ubuntu/opt-qt563-trusty`, `~ubuntu-toolchain-r/+archive/ubuntu/test`, `~openjdk-r/+archive/ubuntu/ppa`); cmake.org (`containers/linux-x32/cmake-3.10.0.tar.gz`) |
 | `windows-win32` | Arch Linux (`lib32-glibc`, `lib32-gcc-libs`, Arch Linux Archive 2026/10/20); GE-Proton10-15; Qt 5.6.3 for MinGW and MinGW 4.9.2 (Qt's builds); CMake 3.20.1; GnuWin32 (zlib 1.2.3 and its tools); OpenSSL 1.0.2n; Temurin JDK 8u504; our `dumpbin` | Arch's package sources (`sources.archlinux.org`); github.com/GloriousEggroll/proton-ge-custom, tag GE-Proton10-15; download.qt.io/archive/qt/5.6/5.6.3; MinGW-builds i686 4.9.2 on sourceforge.net/projects/mingw-w64; cmake.org; gnuwin32.sourceforge.net; openssl.org; github.com/adoptium/jdk8u, tag jdk8u504-b01; `containers/windows-win32/dumpbin/` |
+| `windows-win32-qt5.15` | `windows-win32`, plus Qt 5.15.2 for MinGW and MinGW 8.1.0 (Qt's builds); OpenSSL 1.1.1j (Qt's build); `msvcr100.dll` from the Visual C++ 2010 SP1 redistributable (Microsoft's, redistributable under its license terms, no source) | as `windows-win32`; download.qt.io/archive/qt/5.15/5.15.2 (`single/qt-everywhere-src-5.15.2`); MinGW-builds i686 8.1.0 on sourceforge.net/projects/mingw-w64; openssl.org |
 | `translations`, `deployer` | Debian 12 packages; Qt 5.15.2 qtbase and qttools (built here); rclone 1.75.2; repoman2 | snapshot.debian.org; download.qt.io/archive/qt/5.15/5.15.2/submodules; github.com/rclone/rclone, tag v1.75.2; github.com/MultiMC/repoman2 |
 | `site` | Ubuntu 24.04 packages; Hugo 0.31.1 | archive.ubuntu.com (noble); github.com/gohugoio/hugo, tag v0.31.1 |
