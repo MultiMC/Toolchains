@@ -48,4 +48,5 @@ Not covered: running it on real Windows.
   part of Windows. The VM's build didn't bundle it (its "Add OpenSSL" step copied only the
   two OpenSSL DLLs), so on machines without it the Launcher had no TLS. Bundled since 2026-11-06, next to the OpenSSL DLLs (an app-local copy,
   as Microsoft's redistribution terms allow).
-- The PE headers say 5.1 (XP), as MinGW 8.1 writes them, but Qt 5.15 needs Windows 7.
+- MinGW writes 4.0 as the OS and subsystem version, though Qt 5.15 needs Windows 7. Since
+  2026-11-06 hopper links our binaries for 6.1 (Windows 7), so that's what the gate measures.
