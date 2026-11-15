@@ -23,8 +23,7 @@ every `SHA256SUMS` on the mirror afterwards). Every directory with large files h
 
 ## Published images
 
-The images in `containers/` except `macos-osx64`, and the website's `site` image (from the
-deth001 snapshot, see [`containers/README.md`](containers/README.md)), are published on GitHub's container
+The images in `containers/` except `macos-osx64` are published on GitHub's container
 registry as `ghcr.io/multimc/toolchains/<name>:<date>`, so building the Launcher like the
 releases doesn't need anything from the build server. hopper keeps using the local names
 (`multimc/toolchains/<name>:dev`); to use a published image under that name:
@@ -50,10 +49,11 @@ The images in use (`ghcr.io/multimc/toolchains/<name>:<tag>`):
 | `windows-win32` | `2026-10-30` | `multimc/toolchains/windows-win32:dev` (`IMAGE_WIN32`) | `sha256:f5712d15020fa1162344a8e076e6ba51e27914639237b5161031417aeb679378` |
 | `translations` | `2026-10-30` | `multimc/toolchains/translations:dev` (`IMAGE_TRANSLATIONS`) | `sha256:e8e6b13ae96b5e40d45293032b8b226ba28fd8ca959168743a6ed77c424ff251` |
 | `deployer` | `2026-11-15` | `multimc/toolchains/deployer:dev` (`IMAGE_DEPLOYER`) | `sha256:87515731192062c7902d4d38e498c40b24db8e01b607902483a4dabf9ee25779` |
-| `site` | `2026-10-30` | `ghcr.io/multimc/toolchains/site:latest` (`IMAGE_SITE`) | `sha256:fbb7c9283a1b770b05478814dabde6f19f1f0bf8028240443065567282890c39` |
+| `site` | (not published yet) | `multimc/toolchains/site:dev` (`IMAGE_SITE`) | |
 
-`site` keeps its old name in hopper: tag it as `ghcr.io/multimc/toolchains/site:latest`
-instead. The digests are the images' IDs as `docker image inspect` shows them with Docker's
+Until 2026-11-16 `site` was TeamCity's image with Hugo 0.31.1, published as
+`site:2026-10-30` (`sha256:fbb7c9283a1b770b05478814dabde6f19f1f0bf8028240443065567282890c39`)
+and used as `ghcr.io/multimc/toolchains/site:latest`. The digests are the images' IDs as `docker image inspect` shows them with Docker's
 containerd image store; rootless podman shows the image config's digest instead.
 
 ### Where the sources are
@@ -67,4 +67,4 @@ similar licenses, these are the sources:
 | `windows-win32` | `2026-10-30` | Arch Linux (`lib32-glibc`, `lib32-gcc-libs`, Arch Linux Archive 2026/10/20); GE-Proton10-15; Qt 5.6.3 for MinGW and MinGW 4.9.2 (Qt's builds); CMake 3.20.1; GnuWin32 (zlib 1.2.3 and its tools); OpenSSL 1.0.2n; Temurin JDK 8u504; our `dumpbin` | Arch's package sources (`sources.archlinux.org`); github.com/GloriousEggroll/proton-ge-custom, tag GE-Proton10-15; download.qt.io/archive/qt/5.6/5.6.3; MinGW-builds i686 4.9.2 on sourceforge.net/projects/mingw-w64; cmake.org; gnuwin32.sourceforge.net; openssl.org; github.com/adoptium/jdk8u, tag jdk8u504-b01; `containers/windows-win32/dumpbin/` |
 | `windows-win32-qt5.15` | `windows-win32`, plus Qt 5.15.2 for MinGW and MinGW 8.1.0 (Qt's builds); OpenSSL 1.1.1j (Qt's build); `msvcr100.dll` from the Visual C++ 2010 SP1 redistributable (Microsoft's, redistributable under its license terms, no source) | as `windows-win32`; download.qt.io/archive/qt/5.15/5.15.2 (`single/qt-everywhere-src-5.15.2`); MinGW-builds i686 8.1.0 on sourceforge.net/projects/mingw-w64; openssl.org |
 | `translations`, `deployer` | Debian 12 packages; Qt 5.15.2 qtbase and qttools (built here); rclone 1.75.2 | snapshot.debian.org; download.qt.io/archive/qt/5.15/5.15.2/submodules; github.com/rclone/rclone, tag v1.75.2 |
-| `site` | `2026-10-30` | Ubuntu 24.04 packages; Hugo 0.31.1 | archive.ubuntu.com (noble); github.com/gohugoio/hugo, tag v0.31.1 |
+| `site` | Debian 12 packages; Hugo 0.169.0 | snapshot.debian.org; github.com/gohugoio/hugo, tag v0.169.0 |

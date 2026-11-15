@@ -22,7 +22,7 @@ Images used without a directory here, straight from `../snapshots/2026-10-21-det
 
 | Snapshot image | Status |
 |----------------|--------|
-| `toolchains-site` (Hugo 0.31.1) | in use, preserved: hopper's `website/build.py` runs `ghcr.io/multimc/toolchains/site:latest` (`IMAGE_SITE`). A candidate for a primary rebuild, as Hugo is a single upstream binary. |
+| `toolchains-site` (Hugo 0.31.1) | preserved; replaced on 2026-11-16 by `site/` (Hugo 0.169.0 from upstream). |
 | `toolchains-windows` | unused (an experiment, never pushed) |
 
 ## What the images contain
