@@ -1,23 +1,15 @@
 # deployer: deploy tools
 
-Image `multimc/toolchains/deployer:dev`: `repoman` and `rclone`, from primary sources only.
-hopper's `files/deploy.py` uses repoman to put Launcher builds into the files tree
-(`repoman -c update push …`, `repoman push-file downloads …`); `files/publish.py` and
-`website/publish.py` use rclone for the R2 buckets.
+Image `multimc/toolchains/deployer:dev`: `rclone`, from primary sources only. hopper's
+`files/publish.py` and `website/publish.py` use it for the R2 buckets.
 
     docker build -t multimc/toolchains/deployer:dev .
 
 | Piece | From |
 |-------|------|
 | base | `debian:bookworm-slim` (12.15), pinned by digest, the same base as `translations` and `macos-osx64` |
-| `python3` 3.11.2, `ca-certificates` | Debian 12 packages |
+| `python3` 3.11.2 (unpacks rclone's zip), `ca-certificates` | Debian 12 packages |
 | `rclone` 1.75.2 | downloads.rclone.org, checksum pinned in the Dockerfile (from rclone's `SHA256SUMS`, PGP signature checked 2026-10-24) |
-| `repoman` | github.com/MultiMC/repoman2 at `4ce9a73b9a84b16fc35053415ad23eeb1bd7b10e` (the `repoman/` package only), plus a three-line `/usr/local/bin/repoman` doing what pip's entry point did |
-
-repoman2 4ce9a73 is c93931e without the S3 backend (`--bucket`, boto): repoman works on a
-local tree only, and syncing it to the buckets is rclone's job, in hopper. All its
-subcommands are as they were. With boto gone, any Python 3 works (`push` tested on 3.11 and
-3.14).
 
 Why not Debian's rclone: Debian 12's 1.60.1 gets `501 NotImplemented` from R2 on every
 upload. The object is written anyway, and the retry then finds nothing to do, so a job
@@ -33,9 +25,16 @@ repoman2 c93931e with boto 2.49.0 from pip, s3cmd 2.2.0, `patronupdater.py` with
 rclone on 2026-10-24) or patronupdater (replaced by hopper's `patrons/update.py`, since
 Patreon's API v1 is gone).
 
+From 2026-10-30 to the new updater's cutover (2026-11-15) it also had `repoman`:
+github.com/MultiMC/repoman2 at `4ce9a73b9a84b16fc35053415ad23eeb1bd7b10e` (c93931e without
+the S3 backend; the `repoman/` package only, plus a three-line `/usr/local/bin/repoman`
+doing what pip's entry point did), with which hopper's `files/deploy.py` put Launcher
+builds into the old update layout. After the cutover nothing deploys there any more;
+repoman was removed and repoman2 archived.
+
 ## Verification (2026-10-30, against the snapshot-based image)
 
-- **repoman:** the image's sources are those of 4ce9a73 (sha256 of all 10 `.py` files;
+- **repoman** (removed since): the image's sources are those of 4ce9a73 (sha256 of all 10 `.py` files;
   c93931e's 11 minus `backend/s3.py`). The same deploy as `files/deploy.py` (lin64
   `mmc-develop-lin64.tar.gz` from the snapshot as build 9999 into the develop channel;
   `update/config.json`, `lin64/channels.json` and `develop/index.json` from
